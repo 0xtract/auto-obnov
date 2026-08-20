@@ -22,12 +22,20 @@ from serverclone import Clone
 
 APP_NAME = "Katana Cloner"
 
-GITHUB_OWNER = "0xtract"
-GITHUB_REPO = "katana-lic"
-GITHUB_FILE = "licenses.json"
-GITHUB_BRANCH = "main"
+# --- ВЕРСИЯ ---
+VERSION = "0.9.0"  # ВРЕМЕННО МЕНЬШЕ, ЧТОБЫ ПОКАЗАТЬ ОБНОВЛЕНИЕ!
 
-GITHUB_TOKEN = "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"
+# --- РЕПОЗИТОРИЙ ДЛЯ ЛИЦЕНЗИЙ (ПУБЛИЧНЫЙ) ---
+LIC_GITHUB_OWNER = "0xtract"
+LIC_GITHUB_REPO = "katana-lic"
+LIC_GITHUB_FILE = "licenses.json"
+LIC_GITHUB_BRANCH = "main"
+LIC_GITHUB_TOKEN = "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"
+
+# --- РЕПОЗИТОРИЙ ДЛЯ ОБНОВЛЕНИЙ (ПРИВАТНЫЙ, КЛАССИЧЕСКИЙ TOKEN) ---
+UPDATE_GITHUB_OWNER = "0xtract"
+UPDATE_GITHUB_REPO = "auto-obnov"
+UPDATE_GITHUB_TOKEN = "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"
 
 
 # ============================================================
@@ -62,9 +70,7 @@ CYAN = "#00d4ff"
 # ============================================================
 
 def get_hwid():
-
     try:
-
         values = [
             platform.system(),
             platform.node(),
@@ -74,9 +80,7 @@ def get_hwid():
         ]
 
         if platform.system() == "Windows":
-
             try:
-
                 result = subprocess.check_output(
                     "wmic csproduct get uuid",
                     shell=True,
@@ -84,31 +88,26 @@ def get_hwid():
                 ).decode(
                     errors="ignore"
                 )
-
                 values.append(result)
-
             except Exception:
                 pass
 
         raw = "|".join(values)
-
         return hashlib.sha256(
             raw.encode("utf-8")
         ).hexdigest()
 
     except Exception:
-
         return None
 
 
 # ============================================================
-# GITHUB
+# GITHUB ДЛЯ ЛИЦЕНЗИЙ (публичный репозиторий, Bearer)
 # ============================================================
 
-def github_headers():
-
+def lic_github_headers():
     return {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Authorization": f"Bearer {LIC_GITHUB_TOKEN}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "Katana-Cloner"
@@ -116,124 +115,79 @@ def github_headers():
 
 
 def get_license_file():
-
     url = (
         f"https://api.github.com/repos/"
-        f"{GITHUB_OWNER}/"
-        f"{GITHUB_REPO}/contents/"
-        f"{GITHUB_FILE}"
-        f"?ref={GITHUB_BRANCH}"
+        f"{LIC_GITHUB_OWNER}/"
+        f"{LIC_GITHUB_REPO}/contents/"
+        f"{LIC_GITHUB_FILE}"
+        f"?ref={LIC_GITHUB_BRANCH}"
     )
 
     try:
-
         response = requests.get(
             url,
-            headers=github_headers(),
+            headers=lic_github_headers(),
             timeout=15
         )
-
     except requests.RequestException as e:
-
         return None, f"Ошибка подключения к GitHub: {e}"
 
     if response.status_code != 200:
-
         if response.status_code == 401:
             return None, "GitHub Token недействителен."
-
         if response.status_code == 403:
             return None, "GitHub Token не имеет необходимых прав."
-
         if response.status_code == 404:
-
-            return None, (
-                "Репозиторий или licenses.json не найден."
-            )
-
-        return None, (
-            f"GitHub API вернул HTTP "
-            f"{response.status_code}"
-        )
+            return None, "Репозиторий или licenses.json не найден."
+        return None, f"GitHub API вернул HTTP {response.status_code}"
 
     try:
-
         data = response.json()
-
         content = data["content"]
         sha = data["sha"]
-
         content = content.replace("\n", "")
-
-        decoded = base64.b64decode(
-            content
-        ).decode("utf-8")
-
+        decoded = base64.b64decode(content).decode("utf-8")
         licenses = json.loads(decoded)
 
         if not isinstance(licenses, dict):
-
-            return None, (
-                "licenses.json должен содержать JSON-объект."
-            )
+            return None, "licenses.json должен содержать JSON-объект."
 
         return (licenses, sha), None
 
     except Exception as e:
-
-        return None, (
-            f"Ошибка чтения licenses.json: {e}"
-        )
+        return None, f"Ошибка чтения licenses.json: {e}"
 
 
-def save_license_file(
-    licenses,
-    sha,
-    commit_message
-):
-
-    content = json.dumps(
-        licenses,
-        indent=4,
-        ensure_ascii=False
-    )
-
-    encoded = base64.b64encode(
-        content.encode("utf-8")
-    ).decode("utf-8")
+def save_license_file(licenses, sha, commit_message):
+    content = json.dumps(licenses, indent=4, ensure_ascii=False)
+    encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
 
     url = (
         f"https://api.github.com/repos/"
-        f"{GITHUB_OWNER}/"
-        f"{GITHUB_REPO}/contents/"
-        f"{GITHUB_FILE}"
+        f"{LIC_GITHUB_OWNER}/"
+        f"{LIC_GITHUB_REPO}/contents/"
+        f"{LIC_GITHUB_FILE}"
     )
 
     payload = {
         "message": commit_message,
         "content": encoded,
         "sha": sha,
-        "branch": GITHUB_BRANCH
+        "branch": LIC_GITHUB_BRANCH
     }
 
     try:
-
         response = requests.put(
             url,
-            headers=github_headers(),
+            headers=lic_github_headers(),
             json=payload,
             timeout=15
         )
-
     except requests.RequestException as e:
-
         return False, str(e)
 
     if response.status_code not in (200, 201):
-
-        return False, (
-            f"GitHub HTTP {response.status_code}"
-        )
+        return False, f"GitHub HTTP {response.status_code}"
 
     return True, None
 
@@ -243,116 +197,60 @@ def save_license_file(
 # ============================================================
 
 def check_expiration(license_data):
-
     expires = license_data.get("expires")
-
     if not expires:
-
-        return False, (
-            "У лицензии не указан срок действия."
-        )
+        return False, "У лицензии не указан срок действия."
 
     try:
-
-        expiration_date = datetime.strptime(
-            str(expires),
-            "%Y-%m-%d"
-        ).date()
-
+        expiration_date = datetime.strptime(str(expires), "%Y-%m-%d").date()
     except ValueError:
-
-        return False, (
-            "Некорректная дата окончания лицензии."
-        )
+        return False, "Некорректная дата окончания лицензии."
 
     if datetime.now().date() > expiration_date:
-
-        return False, (
-            "Срок действия лицензии истёк."
-        )
+        return False, "Срок действия лицензии истёк."
 
     return True, None
 
 
 def check_license(key):
-
     key = key.strip()
 
     if not key:
-
-        return False, (
-            "Введите лицензионный ключ."
-        ), None
+        return False, "Введите лицензионный ключ.", None
 
     result, error = get_license_file()
-
     if result is None:
-
         return False, error, None
 
     licenses, sha = result
 
     if key not in licenses:
-
-        return False, (
-            "Лицензионный ключ не найден."
-        ), None
+        return False, "Лицензионный ключ не найден.", None
 
     license_data = licenses[key]
 
-    if not isinstance(
-        license_data,
-        dict
-    ):
+    if not isinstance(license_data, dict):
+        return False, "Некорректный формат лицензии.", None
 
-        return False, (
-            "Некорректный формат лицензии."
-        ), None
+    if license_data.get("active", False) is not True:
+        return False, "Лицензия отключена администратором.", None
 
-    if license_data.get(
-        "active",
-        False
-    ) is not True:
-
-        return False, (
-            "Лицензия отключена администратором."
-        ), None
-
-    valid, reason = check_expiration(
-        license_data
-    )
-
+    valid, reason = check_expiration(license_data)
     if not valid:
-
         return False, reason, None
 
     current_hwid = get_hwid()
-
     if not current_hwid:
+        return False, "Не удалось определить HWID.", None
 
-        return False, (
-            "Не удалось определить HWID."
-        ), None
-
-    saved_hwid = license_data.get(
-        "hwid"
-    )
+    saved_hwid = license_data.get("hwid")
 
     if saved_hwid:
-
         if saved_hwid != current_hwid:
-
-            return False, (
-                "Лицензия привязана к другому устройству."
-            ), None
-
+            return False, "Лицензия привязана к другому устройству.", None
     else:
-
         license_data["hwid"] = current_hwid
-
-        license_data["last_used"] = (
-            datetime.now().strftime("%Y-%m-%d")
-        )
+        license_data["last_used"] = datetime.now().strftime("%Y-%m-%d")
 
         success, error = save_license_file(
             licenses,
@@ -361,61 +259,30 @@ def check_license(key):
         )
 
         if not success:
-
-            return False, (
-                f"Не удалось зарегистрировать HWID: {error}"
-            ), None
+            return False, f"Не удалось зарегистрировать HWID: {error}", None
 
         result, error = get_license_file()
-
         if result is not None:
-
             licenses, sha = result
             license_data = licenses[key]
 
-    license_type = str(
-        license_data.get(
-            "type",
-            "FREE"
-        )
-    ).upper()
+    license_type = str(license_data.get("type", "FREE")).upper()
 
-    uses_left = license_data.get(
-        "uses_left"
-    )
+    uses_left = license_data.get("uses_left")
 
     if uses_left is not None:
-
         try:
-
-            uses_left = int(
-                uses_left
-            )
-
-        except (
-            ValueError,
-            TypeError
-        ):
-
-            return False, (
-                "Некорректное количество использований."
-            ), None
+            uses_left = int(uses_left)
+        except (ValueError, TypeError):
+            return False, "Некорректное количество использований.", None
 
         if uses_left <= 0:
-
-            return False, (
-                "Лимит использований исчерпан."
-            ), None
+            return False, "Лимит использований исчерпан.", None
 
     if uses_left is not None:
+        license_data["uses_left"] = uses_left - 1
 
-        license_data["uses_left"] = (
-            uses_left - 1
-        )
-
-    license_data["last_used"] = (
-        datetime.now().strftime("%Y-%m-%d")
-    )
+    license_data["last_used"] = datetime.now().strftime("%Y-%m-%d")
 
     save_license_file(
         licenses,
@@ -423,21 +290,260 @@ def check_license(key):
         f"Use license {key}"
     )
 
-    return True, (
-        "Лицензия успешно активирована."
-    ), {
+    return True, "Лицензия успешно активирована.", {
         "key": key,
         "type": license_type,
-        "expires": license_data.get(
-            "expires"
-        ),
-        "uses_left": (
-            uses_left - 1
-            if uses_left is not None
-            else None
-        ),
+        "expires": license_data.get("expires"),
+        "uses_left": uses_left - 1 if uses_left is not None else None,
         "hwid": current_hwid
     }
+
+
+# ============================================================
+# GITHUB ДЛЯ ОБНОВЛЕНИЙ (приватный репозиторий, классический токен)
+# ============================================================
+
+def update_github_headers():
+    # Для классического PAT используем "token"
+    return {
+        "Authorization": f"token {UPDATE_GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "Katana-Cloner"
+    }
+
+
+def get_latest_release():
+    """Получает информацию о последнем релизе из приватного репозитория"""
+    url = f"https://api.github.com/repos/{UPDATE_GITHUB_OWNER}/{UPDATE_GITHUB_REPO}/releases/latest"
+    
+    try:
+        response = requests.get(
+            url,
+            headers=update_github_headers(),
+            timeout=15
+        )
+    except requests.RequestException as e:
+        return None, f"Ошибка подключения к GitHub: {e}"
+    
+    if response.status_code != 200:
+        if response.status_code == 401:
+            return None, "GitHub Token недействителен (401)."
+        if response.status_code == 403:
+            return None, "Недостаточно прав (403). Проверь scope 'repo'."
+        if response.status_code == 404:
+            return None, "Релизов пока нет (404). Создай релиз."
+        return None, f"GitHub API вернул HTTP {response.status_code}"
+    
+    try:
+        data = response.json()
+        return data, None
+    except Exception as e:
+        return None, f"Ошибка чтения данных релиза: {e}"
+
+
+def check_updates():
+    """Проверяет наличие обновлений"""
+    data, error = get_latest_release()
+    
+    if data is None:
+        return False, error, None
+    
+    latest_version = data.get("tag_name", "").replace("v", "").strip()
+    
+    if not latest_version:
+        return False, "В релизе не указана версия.", None
+    
+    # Сравниваем версии
+    if compare_versions(latest_version, VERSION) > 0:
+        return True, f"Доступна версия {latest_version}", {
+            "version": latest_version,
+            "url": data.get("zipball_url"),
+            "body": data.get("body", ""),
+            "assets": data.get("assets", []),
+            "created_at": data.get("created_at", "")
+        }
+    else:
+        return False, "У вас последняя версия.", None
+
+
+def compare_versions(v1, v2):
+    """Сравнивает версии. Возвращает 1 если v1 > v2, -1 если v1 < v2, 0 если равны"""
+    if not v1 or not v2:
+        return 0
+        
+    try:
+        v1_parts = [int(x) for x in v1.split('.')]
+        v2_parts = [int(x) for x in v2.split('.')]
+    except ValueError:
+        return 0
+        
+    while len(v1_parts) < len(v2_parts):
+        v1_parts.append(0)
+    while len(v2_parts) < len(v1_parts):
+        v2_parts.append(0)
+        
+    for i in range(len(v1_parts)):
+        if v1_parts[i] > v2_parts[i]:
+            return 1
+        if v1_parts[i] < v2_parts[i]:
+            return -1
+    return 0
+
+
+def download_and_install_update(update_info, logger=None):
+    """Скачивает и устанавливает обновление"""
+    try:
+        if logger:
+            logger("[UPDATER] Загрузка обновления...")
+        
+        response = requests.get(
+            update_info["url"],
+            headers=update_github_headers(),
+            stream=True,
+            timeout=60
+        )
+        
+        import tempfile
+        import os
+        import zipfile
+        import shutil
+        
+        temp_dir = tempfile.mkdtemp()
+        zip_path = os.path.join(temp_dir, "update.zip")
+        
+        with open(zip_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        
+        if logger:
+            logger("[UPDATER] Распаковка...")
+        
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir)
+        
+        # Находим main.py
+        main_file = None
+        for root, dirs, files in os.walk(temp_dir):
+            if "main.py" in files:
+                main_file = os.path.join(root, "main.py")
+                break
+        
+        if not main_file:
+            if logger:
+                logger("[UPDATER] Файл main.py не найден!")
+            return False, "Файл main.py не найден в архиве"
+        
+        # Копируем в текущую папку
+        import sys
+        current_dir = os.path.dirname(sys.argv[0])
+        target_file = os.path.join(current_dir, "main.py")
+        
+        # Создаём бэкап
+        backup_file = os.path.join(current_dir, "main_backup.py")
+        if os.path.exists(target_file):
+            shutil.copy2(target_file, backup_file)
+        
+        shutil.copy2(main_file, target_file)
+        
+        # Удаляем бэкап через 5 секунд
+        def delete_backup():
+            try:
+                if os.path.exists(backup_file):
+                    os.remove(backup_file)
+            except:
+                pass
+        
+        if logger:
+            logger("[UPDATER] Обновление установлено!")
+        
+        # Запускаем удаление бэкапа в отдельном потоке
+        threading.Thread(target=delete_backup, daemon=True).start()
+        
+        return True, None
+        
+    except Exception as e:
+        return False, f"Ошибка обновления: {e}"
+
+
+# ============================================================
+# КЛАСС ДЛЯ УПРАВЛЕНИЯ ОБНОВЛЕНИЯМИ (ПОТОКИ)
+# ============================================================
+
+class UpdateWorker:
+    def __init__(self, logger, root, callback=None):
+        self.logger = logger
+        self.root = root
+        self.callback = callback
+        self.running = False
+        
+    def log(self, text):
+        if self.logger:
+            self.logger(text)
+    
+    def check_in_thread(self):
+        """Запускает проверку в отдельном потоке"""
+        if self.running:
+            return
+            
+        self.running = True
+        self.log("[UPDATER] Проверка обновлений...")
+        
+        def worker():
+            try:
+                success, message, info = check_updates()
+                
+                if success:
+                    self.root.after(0, lambda: self.on_update_available(info))
+                else:
+                    self.root.after(0, lambda: self.on_no_update(message))
+                    
+            except Exception as e:
+                self.log(f"[UPDATER] Ошибка: {e}")
+                self.root.after(0, self.on_error)
+            finally:
+                self.running = False
+        
+        threading.Thread(target=worker, daemon=True).start()
+    
+    def on_update_available(self, info):
+        self.log(f"[UPDATER] Доступна версия {info['version']}")
+        if self.callback:
+            self.callback("available", info)
+    
+    def on_no_update(self, message):
+        self.log(f"[UPDATER] {message}")
+        if self.callback:
+            self.callback("up_to_date", None)
+    
+    def on_error(self):
+        self.log("[UPDATER] Не удалось проверить обновления")
+        if self.callback:
+            self.callback("error", None)
+    
+    def install_update(self, update_info):
+        """Устанавливает обновление"""
+        self.log("[UPDATER] Установка обновления...")
+        
+        def worker():
+            success, error = download_and_install_update(update_info, self.log)
+            
+            if success:
+                self.root.after(1000, self.restart_app)
+            else:
+                self.log(f"[UPDATER] {error}")
+                self.root.after(0, lambda: messagebox.showerror("Ошибка", error))
+        
+        threading.Thread(target=worker, daemon=True).start()
+    
+    def restart_app(self):
+        self.log("[UPDATER] Перезапуск...")
+        import sys
+        import subprocess
+        import os
+        self.root.destroy()
+        subprocess.Popen([sys.executable, sys.argv[0]])
+        sys.exit(0)
 
 
 # ============================================================
@@ -445,303 +551,135 @@ def check_license(key):
 # ============================================================
 
 class DiscordCloner(discord.Client):
-
-    def __init__(
-        self,
-        source_id,
-        target_id,
-        logger,
-        stop_event
-    ):
-
+    def __init__(self, source_id, target_id, logger, stop_event):
         intents = discord.Intents.all()
-        
-        super().__init__(
-            intents=intents
-        )
-
+        super().__init__(intents=intents)
         self.source_id = source_id
         self.target_id = target_id
-
         self.logger = logger
         self.stop_event = stop_event
 
     def log(self, text):
-
         self.logger(text)
 
     async def on_ready(self):
-
-        self.log(
-            f"Авторизация: {self.user}"
-        )
+        self.log(f"Авторизация: {self.user}")
 
         if self.stop_event.is_set():
-
-            self.log(
-                "Операция остановлена."
-            )
-
+            self.log("Операция остановлена.")
             await self.close()
             return
 
-        guild_from = self.get_guild(
-            self.source_id
-        )
-
-        guild_to = self.get_guild(
-            self.target_id
-        )
+        guild_from = self.get_guild(self.source_id)
+        guild_to = self.get_guild(self.target_id)
 
         if guild_from is None:
-
-            self.log(
-                "ОШИБКА: исходный сервер не найден."
-            )
-
+            self.log("ОШИБКА: исходный сервер не найден.")
             await self.close()
             return
 
         if guild_to is None:
-
-            self.log(
-                "ОШИБКА: сервер назначения не найден."
-            )
-
+            self.log("ОШИБКА: сервер назначения не найден.")
             await self.close()
             return
 
-        self.log(
-            f"Источник: {guild_from.name}"
-        )
-
-        self.log(
-            f"Назначение: {guild_to.name}"
-        )
-
-        self.log(
-            "Начинаю клонирование..."
-        )
+        self.log(f"Источник: {guild_from.name}")
+        self.log(f"Назначение: {guild_to.name}")
+        self.log("Начинаю клонирование...")
 
         try:
+            if self.stop_event.is_set():
+                await self.close()
+                return
+
+            self.log("Изменение параметров сервера...")
+            await Clone.guild_edit(guild_to, guild_from)
 
             if self.stop_event.is_set():
                 await self.close()
                 return
 
-            self.log(
-                "Изменение параметров сервера..."
-            )
-
-            await Clone.guild_edit(
-                guild_to,
-                guild_from
-            )
+            self.log("Удаление старых ролей...")
+            await Clone.roles_delete(guild_to)
 
             if self.stop_event.is_set():
                 await self.close()
                 return
 
-            self.log(
-                "Удаление старых ролей..."
-            )
-
-            await Clone.roles_delete(
-                guild_to
-            )
+            self.log("Удаление старых каналов...")
+            await Clone.channels_delete(guild_to)
 
             if self.stop_event.is_set():
                 await self.close()
                 return
 
-            self.log(
-                "Удаление старых каналов..."
-            )
-
-            await Clone.channels_delete(
-                guild_to
-            )
+            self.log("Создание ролей...")
+            await Clone.roles_create(guild_to, guild_from)
 
             if self.stop_event.is_set():
                 await self.close()
                 return
 
-            self.log(
-                "Создание ролей..."
-            )
-
-            await Clone.roles_create(
-                guild_to,
-                guild_from
-            )
+            self.log("Создание категорий...")
+            await Clone.categories_create(guild_to, guild_from)
 
             if self.stop_event.is_set():
                 await self.close()
                 return
 
-            self.log(
-                "Создание категорий..."
-            )
+            self.log("Создание каналов...")
+            await Clone.channels_create(guild_to, guild_from)
 
-            await Clone.categories_create(
-                guild_to,
-                guild_from
-            )
-
-            if self.stop_event.is_set():
-                await self.close()
-                return
-
-            self.log(
-                "Создание каналов..."
-            )
-
-            await Clone.channels_create(
-                guild_to,
-                guild_from
-            )
-
-            self.log(
-                "✓ Клонирование завершено."
-            )
+            self.log("✓ Клонирование завершено.")
 
         except discord.Forbidden:
-
-            self.log(
-                "ОШИБКА: недостаточно прав."
-            )
-
+            self.log("ОШИБКА: недостаточно прав.")
         except discord.HTTPException as e:
-
-            self.log(
-                f"Discord API ошибка: {e}"
-            )
-
+            self.log(f"Discord API ошибка: {e}")
         except Exception as e:
-
-            self.log(
-                f"Ошибка: {e}"
-            )
+            self.log(f"Ошибка: {e}")
 
         await asyncio.sleep(2)
-
         await self.close()
 
 
 # ============================================================
-# LICENSE WINDOW - НОВЫЙ ДИЗАЙН
+# LICENSE WINDOW
 # ============================================================
 
 class LicenseWindow:
-
     def __init__(self):
-
         self.root = tk.Tk()
-
-        self.root.title(
-            "Katana Cloner — License"
-        )
-
-        # Увеличиваем окно для гармоничного размещения
-        self.root.geometry(
-            "520x420"
-        )
-
-        self.root.resizable(
-            False,
-            False
-        )
-
-        self.root.configure(
-            bg=BG
-        )
-
+        self.root.title("Katana Cloner — License")
+        self.root.geometry("520x420")
+        self.root.resizable(False, False)
+        self.root.configure(bg=BG)
         self.build()
 
     def build(self):
+        title = tk.Label(self.root, text="KATANA", bg=BG, fg=TEXT, font=("Segoe UI", 30, "bold"))
+        title.pack(pady=(35, 0))
 
-        # Заголовок KATANA
-        title = tk.Label(
-            self.root,
-            text="KATANA",
-            bg=BG,
-            fg=TEXT,
-            font=(
-                "Segoe UI",
-                30,
-                "bold"
-            )
-        )
-
-        title.pack(
-            pady=(35, 0)
-        )
-
-        # Подзаголовок CLONER синим
-        subtitle = tk.Label(
-            self.root,
-            text="CLONER",
-            bg=BG,
-            fg=BLUE,
-            font=(
-                "Segoe UI",
-                14,
-                "bold"
-            )
-        )
-
+        subtitle = tk.Label(self.root, text="CLONER", bg=BG, fg=BLUE, font=("Segoe UI", 14, "bold"))
         subtitle.pack()
 
-        # Текст "Введите лицензионный ключ"
-        text = tk.Label(
-            self.root,
-            text="Введите лицензионный ключ",
-            bg=BG,
-            fg=MUTED,
-            font=(
-                "Segoe UI",
-                10
-            )
-        )
+        text = tk.Label(self.root, text="Введите лицензионный ключ", bg=BG, fg=MUTED, font=("Segoe UI", 10))
+        text.pack(pady=(28, 12))
 
-        text.pack(
-            pady=(28, 12)
-        )
+        entry_frame = tk.Frame(self.root, bg=BG)
+        entry_frame.pack(padx=50, fill="x", pady=(0, 5))
 
-        # Контейнер для поля ввода и кнопки вставки
-        entry_frame = tk.Frame(
-            self.root,
-            bg=BG
-        )
-        
-        entry_frame.pack(
-            padx=50,
-            fill="x",
-            pady=(0, 5)
-        )
-
-        # Поле ввода - гармоничного размера
         self.entry = tk.Entry(
             entry_frame,
             bg=INPUT,
             fg=TEXT,
             insertbackground=TEXT,
             relief="flat",
-            font=(
-                "Segoe UI",
-                12
-            ),
+            font=("Segoe UI", 12),
             justify="left"
         )
+        self.entry.pack(side="left", fill="x", expand=True, ipady=12)
 
-        self.entry.pack(
-            side="left",
-            fill="x",
-            expand=True,
-            ipady=12
-        )
-
-        # Кнопка вставки из буфера обмена - синяя
         self.paste_button = tk.Button(
             entry_frame,
             text="📋",
@@ -752,40 +690,17 @@ class LicenseWindow:
             activeforeground="white",
             relief="flat",
             bd=0,
-            font=(
-                "Segoe UI",
-                16
-            ),
+            font=("Segoe UI", 16),
             cursor="hand2",
             width=3
         )
-        
-        self.paste_button.pack(
-            side="right",
-            padx=(6, 0),
-            ipady=9
-        )
+        self.paste_button.pack(side="right", padx=(6, 0), ipady=9)
 
-        # Устанавливаем фокус на поле ввода
         self.entry.focus()
 
-        # Статус
-        self.status = tk.Label(
-            self.root,
-            text="Ожидание активации",
-            bg=BG,
-            fg=MUTED,
-            font=(
-                "Segoe UI",
-                9
-            )
-        )
+        self.status = tk.Label(self.root, text="Ожидание активации", bg=BG, fg=MUTED, font=("Segoe UI", 9))
+        self.status.pack(pady=(15, 15))
 
-        self.status.pack(
-            pady=(15, 15)
-        )
-
-        # Кнопка активации - синяя, гармоничного размера
         self.button = tk.Button(
             self.root,
             text="АКТИВИРОВАТЬ",
@@ -796,150 +711,53 @@ class LicenseWindow:
             activeforeground="white",
             relief="flat",
             bd=0,
-            font=(
-                "Segoe UI",
-                11,
-                "bold"
-            ),
+            font=("Segoe UI", 11, "bold"),
             cursor="hand2",
             width=20
         )
+        self.button.pack(ipadx=10, ipady=12)
 
-        self.button.pack(
-            ipadx=10,
-            ipady=12
-        )
-
-        # Горячие клавиши
-        self.root.bind(
-            "<Return>",
-            lambda event: self.activate()
-        )
-        
-        # Привязываем Ctrl+V для вставки независимо от раскладки
-        self.root.bind(
-            "<Control-v>",
-            lambda event: self.paste_from_clipboard()
-        )
-        
-        self.root.bind(
-            "<Control-V>",
-            lambda event: self.paste_from_clipboard()
-        )
+        self.root.bind("<Return>", lambda event: self.activate())
+        self.root.bind("<Control-v>", lambda event: self.paste_from_clipboard())
+        self.root.bind("<Control-V>", lambda event: self.paste_from_clipboard())
 
     def paste_from_clipboard(self):
-        
         try:
-            # Получаем текст из буфера обмена
             clipboard_text = self.root.clipboard_get()
-            
             if clipboard_text:
-                # Очищаем поле и вставляем текст
                 self.entry.delete(0, tk.END)
                 self.entry.insert(0, clipboard_text.strip())
-                
-                # Меняем цвет статуса на зелёный
-                self.status.config(
-                    text="✓ Вставлено из буфера обмена",
-                    fg=GREEN
-                )
-                
-                # Возвращаем стандартный текст через 1.5 секунды
-                self.root.after(
-                    1500,
-                    lambda: self.status.config(
-                        text="Ожидание активации",
-                        fg=MUTED
-                    )
-                )
-                
+                self.status.config(text="✓ Вставлено из буфера обмена", fg=GREEN)
+                self.root.after(1500, lambda: self.status.config(text="Ожидание активации", fg=MUTED))
         except tk.TclError:
-            # Буфер обмена пуст или недоступен
-            self.status.config(
-                text="Буфер обмена пуст",
-                fg=RED
-            )
-            
-            self.root.after(
-                1500,
-                lambda: self.status.config(
-                    text="Ожидание активации",
-                    fg=MUTED
-                )
-            )
+            self.status.config(text="Буфер обмена пуст", fg=RED)
+            self.root.after(1500, lambda: self.status.config(text="Ожидание активации", fg=MUTED))
 
     def activate(self):
-
         key = self.entry.get().strip()
-
         if not key:
-
-            self.status.config(
-                text="Введите ключ.",
-                fg=RED
-            )
-
+            self.status.config(text="Введите ключ.", fg=RED)
             return
 
-        self.button.config(
-            state="disabled",
-            text="ПРОВЕРКА..."
-        )
+        self.button.config(state="disabled", text="ПРОВЕРКА...")
+        self.status.config(text="Подключение к GitHub...", fg=MUTED)
 
-        self.status.config(
-            text="Подключение к GitHub...",
-            fg=MUTED
-        )
-
-        threading.Thread(
-            target=self.worker,
-            args=(key,),
-            daemon=True
-        ).start()
+        threading.Thread(target=self.worker, args=(key,), daemon=True).start()
 
     def worker(self, key):
+        success, message, info = check_license(key)
+        self.root.after(0, self.finish, success, message, info)
 
-        success, message, info = check_license(
-            key
-        )
-
-        self.root.after(
-            0,
-            self.finish,
-            success,
-            message,
-            info
-        )
-
-    def finish(
-        self,
-        success,
-        message,
-        info
-    ):
-
+    def finish(self, success, message, info):
         if not success:
-
-            self.status.config(
-                text=message,
-                fg=RED
-            )
-
-            self.button.config(
-                state="normal",
-                text="АКТИВИРОВАТЬ"
-            )
-
+            self.status.config(text=message, fg=RED)
+            self.button.config(state="normal", text="АКТИВИРОВАТЬ")
             return
 
         self.root.destroy()
-
-        MainWindow(
-            info
-        ).run()
+        MainWindow(info).run()
 
     def run(self):
-
         self.root.mainloop()
 
 
@@ -948,107 +766,65 @@ class LicenseWindow:
 # ============================================================
 
 class MainWindow:
-
-    def __init__(
-        self,
-        license_info
-    ):
-
+    def __init__(self, license_info):
         self.license_info = license_info
-
         self.discord_client = None
-
         self.stop_event = threading.Event()
-
         self.running = False
-        
         self.license_window_open = False
+        self.update_info = None
 
         self.root = tk.Tk()
-
-        self.root.title(
-            "Katana Cloner"
-        )
-
-        self.root.geometry(
-            "1050x650"
-        )
-
-        self.root.minsize(
-            950,
-            600
-        )
-
-        self.root.configure(
-            bg=BG
-        )
-
-        self.root.protocol(
-            "WM_DELETE_WINDOW",
-            self.close
-        )
+        self.root.title("Katana Cloner")
+        self.root.geometry("1050x650")
+        self.root.minsize(950, 600)
+        self.root.configure(bg=BG)
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
 
         self.build()
 
-    # ========================================================
-    # UI
-    # ========================================================
-
     def build(self):
-
-        # ----------------------------------------------------
         # Header
-        # ----------------------------------------------------
+        header = tk.Frame(self.root, bg=BG)
+        header.pack(fill="x", padx=28, pady=(22, 10))
 
-        header = tk.Frame(
-            self.root,
-            bg=BG
+        title_frame = tk.Frame(header, bg=BG)
+        title_frame.pack(side="left")
+
+        tk.Label(title_frame, text="KATANA", bg=BG, fg=TEXT, font=("Segoe UI", 23, "bold")).pack(side="left")
+        tk.Label(title_frame, text=" CLONER", bg=BG, fg=BLUE, font=("Segoe UI", 13, "bold")).pack(side="left", pady=(8, 0))
+
+        # --- КНОПКА АВТООБНОВЛЕНИЯ ---
+        updater_frame = tk.Frame(header, bg=BG)
+        updater_frame.pack(side="right", padx=(0, 5))
+        
+        self.update_button = tk.Button(
+            updater_frame,
+            text="🔄 ПРОВЕРКА...",
+            command=self.start_update,
+            bg=BLUE,
+            fg="white",
+            activebackground=BLUE_HOVER,
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 8, "bold"),
+            cursor="hand2",
+            state="disabled"
         )
-
-        header.pack(
-            fill="x",
-            padx=28,
-            pady=(22, 10)
+        self.update_button.pack(ipadx=10, ipady=5)
+        
+        # Создаём UpdateWorker
+        self.update_worker = UpdateWorker(
+            logger=self.log,
+            root=self.root,
+            callback=self.on_update_result
         )
+        
+        # Проверяем обновления через 3 секунды
+        self.root.after(3000, self.update_worker.check_in_thread)
 
-        title_frame = tk.Frame(
-            header,
-            bg=BG
-        )
-
-        title_frame.pack(
-            side="left"
-        )
-
-        tk.Label(
-            title_frame,
-            text="KATANA",
-            bg=BG,
-            fg=TEXT,
-            font=(
-                "Segoe UI",
-                23,
-                "bold"
-            )
-        ).pack(
-            side="left"
-        )
-
-        tk.Label(
-            title_frame,
-            text=" CLONER",
-            bg=BG,
-            fg=BLUE,
-            font=(
-                "Segoe UI",
-                13,
-                "bold"
-            )
-        ).pack(
-            side="left",
-            pady=(8, 0)
-        )
-
+        # --- КНОПКА ЛИЦЕНЗИИ ---
         self.license_button = tk.Button(
             header,
             text="ЛИЦЕНЗИЯ",
@@ -1059,212 +835,104 @@ class MainWindow:
             activeforeground=TEXT,
             relief="flat",
             bd=0,
-            font=(
-                "Segoe UI",
-                9,
-                "bold"
-            ),
+            font=("Segoe UI", 9, "bold"),
             cursor="hand2"
         )
+        self.license_button.pack(side="right", ipadx=14, ipady=7)
 
-        self.license_button.pack(
-            side="right",
-            ipadx=14,
-            ipady=7
-        )
+        # Content
+        content = tk.Frame(self.root, bg=BG)
+        content.pack(fill="both", expand=True, padx=28, pady=10)
 
-        # ----------------------------------------------------
-        # Main content
-        # ----------------------------------------------------
+        left = tk.Frame(content, bg=BG)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 12))
 
-        content = tk.Frame(
-            self.root,
-            bg=BG
-        )
-
-        content.pack(
-            fill="both",
-            expand=True,
-            padx=28,
-            pady=10
-        )
-
-        # Left
-        left = tk.Frame(
-            content,
-            bg=BG
-        )
-
-        left.pack(
-            side="left",
-            fill="both",
-            expand=True,
-            padx=(0, 12)
-        )
-
-        # Right terminal
-        right = tk.Frame(
-            content,
-            bg=PANEL
-        )
-
-        right.pack(
-            side="right",
-            fill="both",
-            expand=True,
-            padx=(12, 0)
-        )
+        right = tk.Frame(content, bg=PANEL)
+        right.pack(side="right", fill="both", expand=True, padx=(12, 0))
 
         self.build_left(left)
-
         self.build_terminal(right)
-        
-        # ----------------------------------------------------
-        # Footer с авторством
-        # ----------------------------------------------------
-        
-        footer = tk.Frame(
-            self.root,
-            bg=BG
-        )
-        
-        footer.pack(
-            fill="x",
-            padx=28,
-            pady=(0, 10)
-        )
-        
+
+        # Footer
+        footer = tk.Frame(self.root, bg=BG)
+        footer.pack(fill="x", padx=28, pady=(0, 10))
         tk.Label(
             footer,
             text="Developer: katanov_soulchik  |  Script owner: sakuralol.121_50087",
             bg=BG,
             fg=MUTED,
-            font=(
-                "Segoe UI",
-                8
-            ),
+            font=("Segoe UI", 8),
             justify="center"
-        ).pack(
-            side="bottom",
-            pady=5
-        )
+        ).pack(side="bottom", pady=5)
 
-    # ========================================================
-    # LEFT PANEL
-    # ========================================================
-
-    def build_left(self, parent):
-
-        card = tk.Frame(
-            parent,
-            bg=PANEL
-        )
-
-        card.pack(
-            fill="both",
-            expand=True
-        )
-
-        tk.Label(
-            card,
-            text="Настройки подключения",
-            bg=PANEL,
-            fg=TEXT,
-            font=(
-                "Segoe UI",
-                13,
-                "bold"
+    def on_update_result(self, status, info):
+        """Обработчик результата проверки обновлений"""
+        if status == "available":
+            self.update_button.config(
+                text=f"⬇ ОБНОВИТЬ v{info['version']}",
+                bg=BLUE,
+                state="normal"
             )
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(25, 20)
-        )
-
-        self.create_label(
-            card,
-            "Токен аккаунта Discord"
-        )
-
-        self.token_entry = self.create_entry(
-            card,
-            show="●"
-        )
-
-        self.create_label(
-            card,
-            "ID исходного сервера"
-        )
-
-        self.source_entry = self.create_entry(
-            card
-        )
-
-        self.create_label(
-            card,
-            "ID сервера назначения"
-        )
-
-        self.target_entry = self.create_entry(
-            card
-        )
-
-        # Status
-        status_frame = tk.Frame(
-            card,
-            bg=PANEL2
-        )
-
-        status_frame.pack(
-            fill="x",
-            padx=25,
-            pady=(22, 10)
-        )
-
-        self.status_dot = tk.Label(
-            status_frame,
-            text="●",
-            bg=PANEL2,
-            fg=GREEN,
-            font=(
-                "Segoe UI",
-                13
+            self.update_info = info
+        elif status == "up_to_date":
+            self.update_button.config(
+                text="✅ АКТУАЛЬНО",
+                bg=GREEN,
+                state="disabled"
             )
+        else:
+            self.update_button.config(
+                text="❌ ОШИБКА",
+                bg=RED,
+                state="disabled"
+            )
+
+    def start_update(self):
+        """Запускает процесс обновления"""
+        if not self.update_info:
+            return
+            
+        answer = messagebox.askyesno(
+            "Обновление",
+            f"Доступна новая версия {self.update_info['version']}\n\n{self.update_info.get('body', 'Нет описания')[:200]}\n\nУстановить обновление?"
         )
         
-        self.status_dot.pack(
-            side="left",
-            padx=(12, 7)
+        if not answer:
+            return
+            
+        self.update_button.config(state="disabled", text="⏳ ЗАГРУЗКА...")
+        self.update_worker.install_update(self.update_info)
+
+    def build_left(self, parent):
+        card = tk.Frame(parent, bg=PANEL)
+        card.pack(fill="both", expand=True)
+
+        tk.Label(card, text="Настройки подключения", bg=PANEL, fg=TEXT, font=("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=25, pady=(25, 20)
         )
 
-        self.status_text = tk.Label(
-            status_frame,
-            text="Готов к работе",
-            bg=PANEL2,
-            fg=GREEN,
-            font=(
-                "Segoe UI",
-                9,
-                "bold"
-            )
-        )
+        self.create_label(card, "Токен аккаунта Discord")
+        self.token_entry = self.create_entry(card, show="●")
 
-        self.status_text.pack(
-            side="left",
-            pady=10
-        )
+        self.create_label(card, "ID исходного сервера")
+        self.source_entry = self.create_entry(card)
+
+        self.create_label(card, "ID сервера назначения")
+        self.target_entry = self.create_entry(card)
+
+        # Status
+        status_frame = tk.Frame(card, bg=PANEL2)
+        status_frame.pack(fill="x", padx=25, pady=(22, 10))
+
+        self.status_dot = tk.Label(status_frame, text="●", bg=PANEL2, fg=GREEN, font=("Segoe UI", 13))
+        self.status_dot.pack(side="left", padx=(12, 7))
+
+        self.status_text = tk.Label(status_frame, text="Готов к работе", bg=PANEL2, fg=GREEN, font=("Segoe UI", 9, "bold"))
+        self.status_text.pack(side="left", pady=10)
 
         # Buttons
-        buttons = tk.Frame(
-            card,
-            bg=PANEL
-        )
-
-        buttons.pack(
-            fill="x",
-            padx=25,
-            pady=20
-        )
+        buttons = tk.Frame(card, bg=PANEL)
+        buttons.pack(fill="x", padx=25, pady=20)
 
         self.start_button = tk.Button(
             buttons,
@@ -1276,21 +944,10 @@ class MainWindow:
             activeforeground="white",
             relief="flat",
             bd=0,
-            font=(
-                "Segoe UI",
-                10,
-                "bold"
-            ),
+            font=("Segoe UI", 10, "bold"),
             cursor="hand2"
         )
-
-        self.start_button.pack(
-            side="left",
-            fill="x",
-            expand=True,
-            ipadx=10,
-            ipady=11
-        )
+        self.start_button.pack(side="left", fill="x", expand=True, ipadx=10, ipady=11)
 
         self.stop_button = tk.Button(
             buttons,
@@ -1302,64 +959,25 @@ class MainWindow:
             activeforeground=TEXT,
             relief="flat",
             bd=0,
-            font=(
-                "Segoe UI",
-                10,
-                "bold"
-            ),
+            font=("Segoe UI", 10, "bold"),
             state="disabled",
             cursor="hand2"
         )
-
-        self.stop_button.pack(
-            side="left",
-            fill="x",
-            expand=True,
-            padx=(10, 0),
-            ipadx=10,
-            ipady=11
-        )
+        self.stop_button.pack(side="left", fill="x", expand=True, padx=(10, 0), ipadx=10, ipady=11)
 
         tk.Label(
             card,
-            text=(
-                "Используется токен аккаунта Discord.\n"
-                "Аккаунт должен состоять на обоих серверах."
-            ),
+            text="Используется токен аккаунта Discord.\nАккаунт должен иметь права на обоих серверах.",
             bg=PANEL,
             fg=MUTED,
-            font=(
-                "Segoe UI",
-                8
-            ),
+            font=("Segoe UI", 8),
             wraplength=400,
             justify="left"
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(5, 20)
-        )
-
-    # ========================================================
-    # TERMINAL
-    # ========================================================
+        ).pack(anchor="w", padx=25, pady=(5, 20))
 
     def build_terminal(self, parent):
-
-        tk.Label(
-            parent,
-            text="Терминал",
-            bg=PANEL,
-            fg=TEXT,
-            font=(
-                "Segoe UI",
-                13,
-                "bold"
-            )
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(20, 10)
+        tk.Label(parent, text="Терминал", bg=PANEL, fg=TEXT, font=("Segoe UI", 13, "bold")).pack(
+            anchor="w", padx=20, pady=(20, 10)
         )
 
         self.log_box = tk.Text(
@@ -1370,60 +988,21 @@ class MainWindow:
             selectbackground="#303741",
             relief="flat",
             bd=0,
-            font=(
-                "Consolas",
-                9
-            ),
+            font=("Consolas", 9),
             state="disabled",
             wrap="word"
         )
+        self.log_box.pack(fill="both", expand=True, padx=15, pady=(0, 15))
 
-        self.log_box.pack(
-            fill="both",
-            expand=True,
-            padx=15,
-            pady=(0, 15)
+        self.log("[SYSTEM] Katana Cloner запущен.")
+        self.log("[SYSTEM] Ожидание запуска.")
+
+    def create_label(self, parent, text):
+        tk.Label(parent, text=text, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(
+            anchor="w", padx=25, pady=(7, 5)
         )
 
-        self.log(
-            "[SYSTEM] Katana Cloner запущен."
-        )
-
-        self.log(
-            "[SYSTEM] Ожидание запуска."
-        )
-
-    # ========================================================
-    # INPUT
-    # ========================================================
-
-    def create_label(
-        self,
-        parent,
-        text
-    ):
-
-        tk.Label(
-            parent,
-            text=text,
-            bg=PANEL,
-            fg=MUTED,
-            font=(
-                "Segoe UI",
-                9
-            )
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(7, 5)
-        )
-
-    def create_entry(
-        self,
-        parent,
-        show=None
-    ):
-
+    def create_entry(self, parent, show=None):
         entry = tk.Entry(
             parent,
             bg=INPUT,
@@ -1431,345 +1010,116 @@ class MainWindow:
             insertbackground=TEXT,
             relief="flat",
             bd=0,
-            font=(
-                "Segoe UI",
-                10
-            ),
+            font=("Segoe UI", 10),
             show=show
         )
-
-        entry.pack(
-            fill="x",
-            padx=25,
-            ipady=10
-        )
-
+        entry.pack(fill="x", padx=25, ipady=10)
         return entry
 
-    # ========================================================
-    # LOG
-    # ========================================================
-
     def log(self, text):
-
         def write():
+            self.log_box.config(state="normal")
+            self.log_box.insert("end", text + "\n")
+            self.log_box.see("end")
+            self.log_box.config(state="disabled")
 
-            self.log_box.config(
-                state="normal"
-            )
-
-            self.log_box.insert(
-                "end",
-                text + "\n"
-            )
-
-            self.log_box.see(
-                "end"
-            )
-
-            self.log_box.config(
-                state="disabled"
-            )
-
-        self.root.after(
-            0,
-            write
-        )
-
-    # ========================================================
-    # LICENSE WINDOW
-    # ========================================================
+        self.root.after(0, write)
 
     def show_license(self):
-        
         if self.license_window_open:
             return
-        
+
         self.license_window_open = True
 
-        info = tk.Toplevel(
-            self.root
-        )
+        info = tk.Toplevel(self.root)
+        info.title("Информация о лицензии")
+        info.geometry("430x390")
+        info.resizable(False, False)
+        info.configure(bg=BG)
 
-        info.title(
-            "Информация о лицензии"
-        )
-
-        info.geometry(
-            "430x390"
-        )
-
-        info.resizable(
-            False,
-            False
-        )
-
-        info.configure(
-            bg=BG
-        )
-        
         def on_close():
             self.license_window_open = False
             info.destroy()
-        
+
         info.protocol("WM_DELETE_WINDOW", on_close)
 
-        tk.Label(
-            info,
-            text="ЛИЦЕНЗИЯ",
-            bg=BG,
-            fg=TEXT,
-            font=(
-                "Segoe UI",
-                20,
-                "bold"
-            )
-        ).pack(
-            pady=(30, 5)
-        )
-
-        tk.Label(
-            info,
-            text="Информация об активной лицензии",
-            bg=BG,
-            fg=MUTED,
-            font=(
-                "Segoe UI",
-                9
-            )
-        ).pack(
-            pady=(0, 25)
-        )
+        tk.Label(info, text="ЛИЦЕНЗИЯ", bg=BG, fg=TEXT, font=("Segoe UI", 20, "bold")).pack(pady=(30, 5))
+        tk.Label(info, text="Информация об активной лицензии", bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(pady=(0, 25))
 
         data = [
-            (
-                "Статус",
-                "АКТИВНА",
-                GREEN
-            ),
-            (
-                "Тип",
-                self.license_info.get(
-                    "type",
-                    "UNKNOWN"
-                ),
-                CYAN
-            ),
-            (
-                "Дата окончания",
-                self.license_info.get(
-                    "expires",
-                    "—"
-                ),
-                YELLOW
-            ),
-            (
-                "Использований",
-                (
-                    "∞"
-                    if self.license_info.get(
-                        "uses_left"
-                    ) is None
-                    else str(
-                        self.license_info.get(
-                            "uses_left"
-                        )
-                    )
-                ),
-                ORANGE
-            ),
+            ("Статус", "АКТИВНА", GREEN),
+            ("Тип", self.license_info.get("type", "UNKNOWN"), CYAN),
+            ("Дата окончания", self.license_info.get("expires", "—"), YELLOW),
+            ("Использований", "∞" if self.license_info.get("uses_left") is None else str(self.license_info.get("uses_left")), ORANGE),
         ]
 
         for name, value, color in data:
+            row = tk.Frame(info, bg=PANEL)
+            row.pack(fill="x", padx=30, pady=4)
 
-            row = tk.Frame(
-                info,
-                bg=PANEL
-            )
+            tk.Label(row, text=name, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=12, pady=10)
+            tk.Label(row, text=value, bg=PANEL, fg=color, font=("Segoe UI", 9, "bold")).pack(side="right", padx=12)
 
-            row.pack(
-                fill="x",
-                padx=30,
-                pady=4
-            )
-
-            tk.Label(
-                row,
-                text=name,
-                bg=PANEL,
-                fg=MUTED,
-                font=(
-                    "Segoe UI",
-                    9
-                )
-            ).pack(
-                side="left",
-                padx=12,
-                pady=10
-            )
-
-            tk.Label(
-                row,
-                text=value,
-                bg=PANEL,
-                fg=color,
-                font=(
-                    "Segoe UI",
-                    9,
-                    "bold"
-                )
-            ).pack(
-                side="right",
-                padx=12
-            )
-
-        hwid = self.license_info.get(
-            "hwid",
-            ""
-        )
-
-        tk.Label(
-            info,
-            text="HWID",
-            bg=BG,
-            fg=MUTED,
-            font=(
-                "Segoe UI",
-                8
-            )
-        ).pack(
-            pady=(18, 2)
-        )
-
-        tk.Label(
-            info,
-            text=hwid,
-            bg=BG,
-            fg="#666f79",
-            font=(
-                "Consolas",
-                7
-            )
-        ).pack(
-            padx=20
-        )
-
-    # ========================================================
-    # START
-    # ========================================================
+        hwid = self.license_info.get("hwid", "")
+        tk.Label(info, text="HWID", bg=BG, fg=MUTED, font=("Segoe UI", 8)).pack(pady=(18, 2))
+        tk.Label(info, text=hwid, bg=BG, fg="#666f79", font=("Consolas", 7)).pack(padx=20)
 
     def start_clone(self):
-
         if self.running:
-
             return
 
         token = self.token_entry.get().strip()
-
         source = self.source_entry.get().strip()
-
         target = self.target_entry.get().strip()
 
         if not token:
-
-            messagebox.showerror(
-                "Ошибка",
-                "Введите токен аккаунта Discord."
-            )
-
+            messagebox.showerror("Ошибка", "Введите токен аккаунта Discord.")
             return
 
         if not source.isdigit():
-
-            messagebox.showerror(
-                "Ошибка",
-                "ID исходного сервера должен содержать только цифры."
-            )
-
+            messagebox.showerror("Ошибка", "ID исходного сервера должен содержать только цифры.")
             return
 
         if not target.isdigit():
-
-            messagebox.showerror(
-                "Ошибка",
-                "ID сервера назначения должен содержать только цифры."
-            )
-
+            messagebox.showerror("Ошибка", "ID сервера назначения должен содержать только цифры.")
             return
 
         if source == target:
-
-            messagebox.showerror(
-                "Ошибка",
-                "Серверы не должны совпадать."
-            )
-
+            messagebox.showerror("Ошибка", "Серверы не должны совпадать.")
             return
 
         self.running = True
-
         self.stop_event.clear()
 
-        self.start_button.config(
-            state="disabled",
-            text="РАБОТАЕТ..."
-        )
+        self.start_button.config(state="disabled", text="РАБОТАЕТ...")
+        self.stop_button.config(state="normal", bg=RED, fg="white")
+        self.status_dot.config(fg=RED)
+        self.status_text.config(text="Клонирование выполняется...", fg=RED)
 
-        self.stop_button.config(
-            state="normal",
-            bg=RED,
-            fg="white"
-        )
-
-        self.status_dot.config(
-            fg=RED
-        )
-        
-        self.status_text.config(
-            text="Клонирование выполняется...",
-            fg=RED
-        )
-
-        self.log(
-            "[SYSTEM] Запуск Discord..."
-        )
+        self.log("[SYSTEM] Запуск Discord...")
 
         threading.Thread(
             target=self.discord_worker,
-            args=(
-                token,
-                int(source),
-                int(target)
-            ),
+            args=(token, int(source), int(target)),
             daemon=True
         ).start()
 
-    # ========================================================
-    # DISCORD WORKER
-    # ========================================================
-
-    def discord_worker(
-        self,
-        token,
-        source,
-        target
-    ):
-
+    def discord_worker(self, token, source, target):
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
             self.discord_client = DiscordCloner(
                 source,
                 target,
                 self.log,
                 self.stop_event
             )
-            
+
             loop.run_until_complete(
                 self.discord_client.start(token, bot=False)
             )
-            
+
         except discord.LoginFailure:
             self.log("[ERROR] Discord отклонил токен.")
         except Exception as e:
@@ -1782,146 +1132,65 @@ class MainWindow:
                         loop.run_until_complete(self.discord_client.close())
             except:
                 pass
-            
+
             self.discord_client = None
             self.root.after(0, self.clone_finished)
 
-    # ========================================================
-    # STOP
-    # ========================================================
-
     def stop_clone(self):
-
         if not self.running:
-
             return
 
-        self.log(
-            "[SYSTEM] Запрошена остановка..."
-        )
-
+        self.log("[SYSTEM] Запрошена остановка...")
         self.stop_event.set()
 
-        self.stop_button.config(
-            state="disabled",
-            text="ОСТАНОВКА..."
-        )
-
-        self.status_text.config(
-            text="Остановка...",
-            fg=YELLOW
-        )
+        self.stop_button.config(state="disabled", text="ОСТАНОВКА...")
+        self.status_text.config(text="Остановка...", fg=YELLOW)
 
         if self.discord_client is not None:
-
             try:
-
                 loop = self.discord_client.loop
-
                 if loop and loop.is_running():
-
                     asyncio.run_coroutine_threadsafe(
                         self.discord_client.close(),
                         loop
                     )
-
                 else:
-
                     self.discord_client.close()
-
             except Exception:
-
                 try:
-
                     if self.discord_client:
-
                         self.discord_client.close()
-
                 except:
-
                     pass
 
-    # ========================================================
-    # FINISH
-    # ========================================================
-
     def clone_finished(self):
-
         self.running = False
 
-        self.start_button.config(
-            state="normal",
-            text="НАЧАТЬ"
-        )
-
-        self.stop_button.config(
-            state="disabled",
-            text="ОСТАНОВИТЬ",
-            bg="#292f36",
-            fg="#aaaaaa"
-        )
+        self.start_button.config(state="normal", text="НАЧАТЬ")
+        self.stop_button.config(state="disabled", text="ОСТАНОВИТЬ", bg="#292f36", fg="#aaaaaa")
 
         if self.stop_event.is_set():
-
-            self.status_dot.config(
-                fg=YELLOW
-            )
-            
-            self.status_text.config(
-                text="Остановлено",
-                fg=YELLOW
-            )
-
-            self.log(
-                "[SYSTEM] Операция остановлена."
-            )
-
+            self.status_dot.config(fg=YELLOW)
+            self.status_text.config(text="Остановлено", fg=YELLOW)
+            self.log("[SYSTEM] Операция остановлена.")
         else:
-
-            self.status_dot.config(
-                fg=GREEN
-            )
-            
-            self.status_text.config(
-                text="Готов к работе",
-                fg=GREEN
-            )
-            
-            self.log(
-                "[SYSTEM] Клонирование завершено. Ожидание новых команд."
-            )
-
-    # ========================================================
-    # CLOSE
-    # ========================================================
+            self.status_dot.config(fg=GREEN)
+            self.status_text.config(text="Готов к работе", fg=GREEN)
+            self.log("[SYSTEM] Клонирование завершено. Ожидание новых команд.")
 
     def close(self):
-
         if self.running:
-
             answer = messagebox.askyesno(
                 "Выход",
-                "Клонирование ещё выполняется.\n"
-                "Остановить операцию и выйти?"
+                "Клонирование ещё выполняется.\nОстановить операцию и выйти?"
             )
-
             if not answer:
-
                 return
-
             self.stop_clone()
 
-        self.root.after(
-            300,
-            self.root.destroy
-        )
-
-    # ========================================================
-    # RUN
-    # ========================================================
+        self.root.after(300, self.root.destroy)
 
     def run(self):
-
         self.root.mainloop()
 
 
@@ -1930,17 +1199,8 @@ class MainWindow:
 # ============================================================
 
 if __name__ == "__main__":
-
     try:
-
         LicenseWindow().run()
-
     except Exception as e:
-
-        print(
-            f"Критическая ошибка: {e}"
-        )
-
-        input(
-            "Нажмите Enter для выхода..."
-        )
+        print(f"Критическая ошибка: {e}")
+        input("Нажмите Enter для выхода...")
