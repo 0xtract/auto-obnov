@@ -23,7 +23,7 @@ from serverclone import Clone
 APP_NAME = "Katana Cloner"
 
 # --- ВЕРСИЯ ---
-VERSION = "1.0.0"  # ВРЕМЕННО МЕНЬШЕ, ЧТОБЫ ПОКАЗАТЬ ОБНОВЛЕНИЕ!
+VERSION = "1.3.0"
 
 # --- РЕПОЗИТОРИЙ ДЛЯ ЛИЦЕНЗИЙ (ПУБЛИЧНЫЙ) ---
 LIC_GITHUB_OWNER = "0xtract"
@@ -304,7 +304,6 @@ def check_license(key):
 # ============================================================
 
 def update_github_headers():
-    # Для классического PAT используем "token"
     return {
         "Authorization": f"token {UPDATE_GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
@@ -313,7 +312,6 @@ def update_github_headers():
 
 
 def get_latest_release():
-    """Получает информацию о последнем релизе из приватного репозитория"""
     url = f"https://api.github.com/repos/{UPDATE_GITHUB_OWNER}/{UPDATE_GITHUB_REPO}/releases/latest"
     
     try:
@@ -341,19 +339,27 @@ def get_latest_release():
         return None, f"Ошибка чтения данных релиза: {e}"
 
 
+def clean_version(tag):
+    version = tag.strip()
+    if version.lower().startswith('v'):
+        version = version[1:]
+    if version.startswith('.'):
+        version = version[1:]
+    return version.strip()
+
+
 def check_updates():
-    """Проверяет наличие обновлений"""
     data, error = get_latest_release()
     
     if data is None:
         return False, error, None
     
-    latest_version = data.get("tag_name", "").replace("v", "").strip()
+    tag_name = data.get("tag_name", "")
+    latest_version = clean_version(tag_name)
     
     if not latest_version:
         return False, "В релизе не указана версия.", None
     
-    # Сравниваем версии
     if compare_versions(latest_version, VERSION) > 0:
         return True, f"Доступна версия {latest_version}", {
             "version": latest_version,
@@ -367,7 +373,6 @@ def check_updates():
 
 
 def compare_versions(v1, v2):
-    """Сравнивает версии. Возвращает 1 если v1 > v2, -1 если v1 < v2, 0 если равны"""
     if not v1 or not v2:
         return 0
         
@@ -391,7 +396,6 @@ def compare_versions(v1, v2):
 
 
 def download_and_install_update(update_info, logger=None):
-    """Скачивает и устанавливает обновление"""
     try:
         if logger:
             logger("[UPDATER] Загрузка обновления...")
@@ -422,7 +426,6 @@ def download_and_install_update(update_info, logger=None):
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir)
         
-        # Находим main.py
         main_file = None
         for root, dirs, files in os.walk(temp_dir):
             if "main.py" in files:
@@ -434,19 +437,16 @@ def download_and_install_update(update_info, logger=None):
                 logger("[UPDATER] Файл main.py не найден!")
             return False, "Файл main.py не найден в архиве"
         
-        # Копируем в текущую папку
         import sys
         current_dir = os.path.dirname(sys.argv[0])
         target_file = os.path.join(current_dir, "main.py")
         
-        # Создаём бэкап
         backup_file = os.path.join(current_dir, "main_backup.py")
         if os.path.exists(target_file):
             shutil.copy2(target_file, backup_file)
         
         shutil.copy2(main_file, target_file)
         
-        # Удаляем бэкап через 5 секунд
         def delete_backup():
             try:
                 if os.path.exists(backup_file):
@@ -457,7 +457,6 @@ def download_and_install_update(update_info, logger=None):
         if logger:
             logger("[UPDATER] Обновление установлено!")
         
-        # Запускаем удаление бэкапа в отдельном потоке
         threading.Thread(target=delete_backup, daemon=True).start()
         
         return True, None
@@ -482,7 +481,6 @@ class UpdateWorker:
             self.logger(text)
     
     def check_in_thread(self):
-        """Запускает проверку в отдельном потоке"""
         if self.running:
             return
             
@@ -522,7 +520,6 @@ class UpdateWorker:
             self.callback("error", None)
     
     def install_update(self, update_info):
-        """Устанавливает обновление"""
         self.log("[UPDATER] Установка обновления...")
         
         def worker():
@@ -544,6 +541,194 @@ class UpdateWorker:
         self.root.destroy()
         subprocess.Popen([sys.executable, sys.argv[0]])
         sys.exit(0)
+
+
+# ============================================================
+# UPDATE WINDOW (ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ - УЛУЧШЕННЫЙ)
+# ============================================================
+
+class UpdateWindow:
+    def __init__(self, parent, update_info, on_confirm, on_cancel):
+        self.parent = parent
+        self.update_info = update_info
+        self.on_confirm = on_confirm
+        self.on_cancel = on_cancel
+        
+        self.window = tk.Toplevel(parent)
+        self.window.title("Обновление Katana Cloner")
+        self.window.geometry("680x600")
+        self.window.resizable(False, False)
+        self.window.configure(bg=BG)
+        
+        self.window.overrideredirect(True)
+        
+        self.create_custom_titlebar()
+        
+        self.center_window()
+        
+        self.window.transient(parent)
+        self.window.grab_set()
+        self.window.focus_force()
+        
+        self.build()
+        
+        self.window.bind("<Escape>", lambda e: self.cancel())
+        self.window.bind("<Return>", lambda e: self.confirm())
+    
+    def create_custom_titlebar(self):
+        self.title_bar = tk.Frame(self.window, bg=PANEL2, height=42)
+        self.title_bar.pack(fill="x")
+        self.title_bar.pack_propagate(False)
+        
+        self.title_bar.bind("<Button-1>", self.start_move)
+        self.title_bar.bind("<B1-Motion>", self.on_move)
+        
+        tk.Label(
+            self.title_bar,
+            text="⚔️ Katana Cloner",
+            bg=PANEL2,
+            fg=TEXT,
+            font=("Segoe UI", 12, "bold")
+        ).pack(side="left", padx=18, pady=8)
+        
+        self.close_btn = tk.Button(
+            self.title_bar,
+            text="✕",
+            command=self.cancel,
+            bg=PANEL2,
+            fg=MUTED,
+            activebackground=RED,
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 14, "bold"),
+            cursor="hand2",
+            width=4
+        )
+        self.close_btn.pack(side="right", padx=6, pady=4)
+        
+        self.main_frame = tk.Frame(self.window, bg=BG)
+        self.main_frame.pack(fill="both", expand=True, padx=35, pady=25)
+    
+    def start_move(self, event):
+        self.x = event.x
+        self.y = event.y
+    
+    def on_move(self, event):
+        x = self.window.winfo_x() + event.x - self.x
+        y = self.window.winfo_y() + event.y - self.y
+        self.window.geometry(f"+{x}+{y}")
+    
+    def center_window(self):
+        self.window.update_idletasks()
+        width = self.window.winfo_width()
+        height = self.window.winfo_height()
+        x = (self.window.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.window.winfo_screenheight() // 2) - (height // 2)
+        self.window.geometry(f'{width}x{height}+{x}+{y}')
+    
+    def build(self):
+        icon_frame = tk.Frame(self.main_frame, bg=BG)
+        icon_frame.pack(pady=(0, 8))
+        
+        tk.Label(
+            icon_frame,
+            text="🔄",
+            bg=BG,
+            fg=BLUE,
+            font=("Segoe UI", 46)
+        ).pack()
+        
+        tk.Label(
+            self.main_frame,
+            text="ДОСТУПНО ОБНОВЛЕНИЕ!",
+            bg=BG,
+            fg=TEXT,
+            font=("Segoe UI", 20, "bold")
+        ).pack()
+        
+        tk.Label(
+            self.main_frame,
+            text="Для продолжения работы необходимо обновиться",
+            bg=BG,
+            fg=YELLOW,
+            font=("Segoe UI", 12)
+        ).pack(pady=(5, 18))
+        
+        version_frame = tk.Frame(self.main_frame, bg=PANEL)
+        version_frame.pack(fill="x", pady=(0, 18), ipady=12)
+        
+        tk.Label(
+            version_frame,
+            text=f"Новая версия: v{self.update_info['version']}",
+            bg=PANEL,
+            fg=BLUE,
+            font=("Segoe UI", 26, "bold")
+        ).pack()
+        
+        body_frame = tk.Frame(self.main_frame, bg=PANEL2)
+        body_frame.pack(fill="both", expand=True, pady=(0, 18))
+        
+        body_text = self.update_info.get('body', '')
+        
+        text_widget = tk.Text(
+            body_frame,
+            bg=PANEL2,
+            fg=TEXT,
+            font=("Segoe UI", 10),
+            relief="flat",
+            bd=0,
+            wrap="word",
+            height=9
+        )
+        text_widget.pack(fill="both", expand=True, padx=15, pady=15)
+        
+        if body_text:
+            formatted_text = body_text.replace('**', '')
+            formatted_text = formatted_text.replace('•', '▸')
+            formatted_text = formatted_text.replace('✦', '★')
+            text_widget.insert("1.0", formatted_text)
+        else:
+            text_widget.insert("1.0", "Описание обновления отсутствует.")
+        
+        text_widget.config(state="disabled")
+        
+        buttons_frame = tk.Frame(self.main_frame, bg=BG)
+        buttons_frame.pack(fill="x", pady=(0, 5))
+        
+        self.confirm_btn = tk.Button(
+            buttons_frame,
+            text="⬇ ОБНОВИТЬ СЕЙЧАС",
+            command=self.confirm,
+            bg=BLUE,
+            fg="white",
+            activebackground=BLUE_HOVER,
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 14, "bold"),
+            cursor="hand2",
+            height=2
+        )
+        self.confirm_btn.pack(fill="x", ipady=14)
+        
+        tk.Label(
+            self.main_frame,
+            text="✕ Закрыть окно = выход из программы",
+            bg=BG,
+            fg=MUTED,
+            font=("Segoe UI", 9)
+        ).pack(pady=(10, 0))
+    
+    def confirm(self):
+        self.window.destroy()
+        if self.on_confirm:
+            self.on_confirm()
+    
+    def cancel(self):
+        self.window.destroy()
+        if self.on_cancel:
+            self.on_cancel()
 
 
 # ============================================================
@@ -784,7 +969,6 @@ class MainWindow:
         self.build()
 
     def build(self):
-        # Header
         header = tk.Frame(self.root, bg=BG)
         header.pack(fill="x", padx=28, pady=(22, 10))
 
@@ -794,7 +978,6 @@ class MainWindow:
         tk.Label(title_frame, text="KATANA", bg=BG, fg=TEXT, font=("Segoe UI", 23, "bold")).pack(side="left")
         tk.Label(title_frame, text=" CLONER", bg=BG, fg=BLUE, font=("Segoe UI", 13, "bold")).pack(side="left", pady=(8, 0))
 
-        # --- КНОПКА АВТООБНОВЛЕНИЯ ---
         updater_frame = tk.Frame(header, bg=BG)
         updater_frame.pack(side="right", padx=(0, 5))
         
@@ -814,17 +997,14 @@ class MainWindow:
         )
         self.update_button.pack(ipadx=10, ipady=5)
         
-        # Создаём UpdateWorker
         self.update_worker = UpdateWorker(
             logger=self.log,
             root=self.root,
             callback=self.on_update_result
         )
         
-        # Проверяем обновления через 3 секунды
         self.root.after(3000, self.update_worker.check_in_thread)
 
-        # --- КНОПКА ЛИЦЕНЗИИ ---
         self.license_button = tk.Button(
             header,
             text="ЛИЦЕНЗИЯ",
@@ -840,7 +1020,6 @@ class MainWindow:
         )
         self.license_button.pack(side="right", ipadx=14, ipady=7)
 
-        # Content
         content = tk.Frame(self.root, bg=BG)
         content.pack(fill="both", expand=True, padx=28, pady=10)
 
@@ -853,7 +1032,6 @@ class MainWindow:
         self.build_left(left)
         self.build_terminal(right)
 
-        # Footer
         footer = tk.Frame(self.root, bg=BG)
         footer.pack(fill="x", padx=28, pady=(0, 10))
         tk.Label(
@@ -866,7 +1044,6 @@ class MainWindow:
         ).pack(side="bottom", pady=5)
 
     def on_update_result(self, status, info):
-        """Обработчик результата проверки обновлений"""
         if status == "available":
             self.update_button.config(
                 text=f"⬇ ОБНОВИТЬ v{info['version']}",
@@ -888,20 +1065,23 @@ class MainWindow:
             )
 
     def start_update(self):
-        """Запускает процесс обновления"""
         if not self.update_info:
             return
-            
-        answer = messagebox.askyesno(
-            "Обновление",
-            f"Доступна новая версия {self.update_info['version']}\n\n{self.update_info.get('body', 'Нет описания')[:200]}\n\nУстановить обновление?"
-        )
         
-        if not answer:
-            return
-            
-        self.update_button.config(state="disabled", text="⏳ ЗАГРУЗКА...")
-        self.update_worker.install_update(self.update_info)
+        def on_confirm():
+            self.update_button.config(state="disabled", text="⏳ ЗАГРУЗКА...")
+            self.update_worker.install_update(self.update_info)
+        
+        def on_cancel():
+            self.log("[SYSTEM] Обновление отклонено. Выход...")
+            self.root.after(500, self.root.destroy)
+        
+        UpdateWindow(
+            parent=self.root,
+            update_info=self.update_info,
+            on_confirm=on_confirm,
+            on_cancel=on_cancel
+        )
 
     def build_left(self, parent):
         card = tk.Frame(parent, bg=PANEL)
@@ -920,7 +1100,6 @@ class MainWindow:
         self.create_label(card, "ID сервера назначения")
         self.target_entry = self.create_entry(card)
 
-        # Status
         status_frame = tk.Frame(card, bg=PANEL2)
         status_frame.pack(fill="x", padx=25, pady=(22, 10))
 
@@ -930,7 +1109,6 @@ class MainWindow:
         self.status_text = tk.Label(status_frame, text="Готов к работе", bg=PANEL2, fg=GREEN, font=("Segoe UI", 9, "bold"))
         self.status_text.pack(side="left", pady=10)
 
-        # Buttons
         buttons = tk.Frame(card, bg=PANEL)
         buttons.pack(fill="x", padx=25, pady=20)
 
