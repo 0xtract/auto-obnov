@@ -23,7 +23,7 @@ from serverclone import Clone
 APP_NAME = "Katana Cloner"
 
 # --- ВЕРСИЯ ---
-VERSION = "1.4.2"
+VERSION = "1.4.3"
 
 # --- РЕПОЗИТОРИЙ ДЛЯ ЛИЦЕНЗИЙ (ПУБЛИЧНЫЙ) ---
 LIC_GITHUB_OWNER = "0xtract"
@@ -544,7 +544,7 @@ class UpdateWorker:
 
 
 # ============================================================
-# UPDATE WINDOW (ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ - С ШИРОКОЙ КНОПКОЙ)
+# UPDATE WINDOW (МОДАЛЬНЫЙ - БЛОКИРУЕТ УПРАВЛЕНИЕ)
 # ============================================================
 
 class UpdateWindow:
@@ -556,7 +556,7 @@ class UpdateWindow:
         
         self.window = tk.Toplevel(parent)
         self.window.title("Обновление Katana Cloner")
-        self.window.geometry("700x620")
+        self.window.geometry("680x600")
         self.window.resizable(False, False)
         self.window.configure(bg=BG)
         
@@ -698,7 +698,7 @@ class UpdateWindow:
         
         self.confirm_btn = tk.Button(
             buttons_frame,
-            text="⬇ ОБНОВИТЬ СЕЙЧАС",
+            text="⬇ ОБНОВИТЬ",
             command=self.confirm,
             bg=BLUE,
             fg="white",
@@ -706,16 +706,33 @@ class UpdateWindow:
             activeforeground="white",
             relief="flat",
             bd=0,
-            font=("Segoe UI", 16, "bold"),
+            font=("Segoe UI", 14, "bold"),
             cursor="hand2",
             height=2,
-            width=30
+            width=25
         )
-        self.confirm_btn.pack(fill="x", ipady=16, padx=10)
+        self.confirm_btn.pack(side="left", padx=(0, 10), ipady=14, expand=True, fill="x")
+        
+        self.cancel_btn = tk.Button(
+            buttons_frame,
+            text="✕ ЗАКРЫТЬ",
+            command=self.cancel,
+            bg=PANEL2,
+            fg=MUTED,
+            activebackground=RED,
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 14, "bold"),
+            cursor="hand2",
+            height=2,
+            width=25
+        )
+        self.cancel_btn.pack(side="left", ipady=14, expand=True, fill="x")
         
         tk.Label(
             self.main_frame,
-            text="✕ Закрыть окно = выход из программы",
+            text="Нажмите 'Обновить' для установки или 'Закрыть' для выхода",
             bg=BG,
             fg=MUTED,
             font=("Segoe UI", 9)
@@ -979,12 +996,13 @@ class MainWindow:
         tk.Label(title_frame, text="KATANA", bg=BG, fg=TEXT, font=("Segoe UI", 23, "bold")).pack(side="left")
         tk.Label(title_frame, text=" CLONER", bg=BG, fg=BLUE, font=("Segoe UI", 13, "bold")).pack(side="left", pady=(8, 0))
 
-        updater_frame = tk.Frame(header, bg=BG)
-        updater_frame.pack(side="right", padx=(0, 5))
+        # --- КНОПКА ОБНОВЛЕНИЯ (СКРЫТА ПО УМОЛЧАНИЮ) ---
+        self.update_frame = tk.Frame(header, bg=BG)
+        # НЕ показываем, пока нет обновления
         
         self.update_button = tk.Button(
-            updater_frame,
-            text="🔄 ПРОВЕРКА...",
+            self.update_frame,
+            text="⬇ ОБНОВИТЬ",
             command=self.start_update,
             bg=BLUE,
             fg="white",
@@ -993,19 +1011,11 @@ class MainWindow:
             relief="flat",
             bd=0,
             font=("Segoe UI", 8, "bold"),
-            cursor="hand2",
-            state="disabled"
+            cursor="hand2"
         )
         self.update_button.pack(ipadx=10, ipady=5)
-        
-        self.update_worker = UpdateWorker(
-            logger=self.log,
-            root=self.root,
-            callback=self.on_update_result
-        )
-        
-        self.root.after(3000, self.update_worker.check_in_thread)
 
+        # --- КНОПКА ЛИЦЕНЗИИ ---
         self.license_button = tk.Button(
             header,
             text="ЛИЦЕНЗИЯ",
@@ -1044,28 +1054,34 @@ class MainWindow:
             justify="center"
         ).pack(side="bottom", pady=5)
 
+        # --- ЗАПУСКАЕМ ПРОВЕРКУ ОБНОВЛЕНИЙ ---
+        self.update_worker = UpdateWorker(
+            logger=self.log,
+            root=self.root,
+            callback=self.on_update_result
+        )
+        self.root.after(3000, self.update_worker.check_in_thread)
+
     def on_update_result(self, status, info):
         if status == "available":
-            self.update_button.config(
-                text=f"⬇ ОБНОВИТЬ v{info['version']}",
-                bg=BLUE,
-                state="normal"
-            )
+            # ПОКАЗЫВАЕМ КНОПКУ ОБНОВЛЕНИЯ
+            self.update_frame.pack(side="right", padx=(0, 5))
+            self.update_button.config(text=f"⬇ ОБНОВИТЬ v{info['version']}")
             self.update_info = info
+            
+            # АВТОМАТИЧЕСКИ ОТКРЫВАЕМ ОКНО ОБНОВЛЕНИЯ
+            self.root.after(500, self.start_update)
+            
         elif status == "up_to_date":
-            self.update_button.config(
-                text="✅ АКТУАЛЬНО",
-                bg=GREEN,
-                state="disabled"
-            )
-        else:
-            self.update_button.config(
-                text="❌ ОШИБКА",
-                bg=RED,
-                state="disabled"
-            )
+            # СКРЫВАЕМ КНОПКУ (НЕТ ОБНОВЛЕНИЙ)
+            self.update_frame.pack_forget()
+            
+        else:  # error
+            # СКРЫВАЕМ КНОПКУ ПРИ ОШИБКЕ
+            self.update_frame.pack_forget()
 
     def start_update(self):
+        """Запускает принудительное обновление с двумя кнопками"""
         if not self.update_info:
             return
         
