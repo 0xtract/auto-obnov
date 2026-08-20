@@ -23,7 +23,7 @@ from serverclone import Clone
 APP_NAME = "Katana Cloner"
 
 # --- ВЕРСИЯ ---
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 # --- РЕПОЗИТОРИЙ ДЛЯ ЛИЦЕНЗИЙ (ПУБЛИЧНЫЙ) ---
 LIC_GITHUB_OWNER = "0xtract"
@@ -544,7 +544,7 @@ class UpdateWorker:
 
 
 # ============================================================
-# UPDATE WINDOW (ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ - УЛУЧШЕННЫЙ)
+# UPDATE WINDOW (ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ - С ШИРОКОЙ КНОПКОЙ)
 # ============================================================
 
 class UpdateWindow:
@@ -556,7 +556,7 @@ class UpdateWindow:
         
         self.window = tk.Toplevel(parent)
         self.window.title("Обновление Katana Cloner")
-        self.window.geometry("680x600")
+        self.window.geometry("700x620")
         self.window.resizable(False, False)
         self.window.configure(bg=BG)
         
@@ -608,7 +608,7 @@ class UpdateWindow:
         self.close_btn.pack(side="right", padx=6, pady=4)
         
         self.main_frame = tk.Frame(self.window, bg=BG)
-        self.main_frame.pack(fill="both", expand=True, padx=35, pady=25)
+        self.main_frame.pack(fill="both", expand=True, padx=40, pady=25)
     
     def start_move(self, event):
         self.x = event.x
@@ -656,7 +656,7 @@ class UpdateWindow:
         ).pack(pady=(5, 18))
         
         version_frame = tk.Frame(self.main_frame, bg=PANEL)
-        version_frame.pack(fill="x", pady=(0, 18), ipady=12)
+        version_frame.pack(fill="x", pady=(0, 18), ipady=14)
         
         tk.Label(
             version_frame,
@@ -706,11 +706,12 @@ class UpdateWindow:
             activeforeground="white",
             relief="flat",
             bd=0,
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 16, "bold"),
             cursor="hand2",
-            height=2
+            height=2,
+            width=30
         )
-        self.confirm_btn.pack(fill="x", ipady=14)
+        self.confirm_btn.pack(fill="x", ipady=16, padx=10)
         
         tk.Label(
             self.main_frame,
