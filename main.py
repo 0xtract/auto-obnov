@@ -23,7 +23,7 @@ from serverclone import Clone
 APP_NAME = "Katana Cloner"
 
 # --- ВЕРСИЯ ---
-VERSION = "1.4.0"
+VERSION = "1.4.2"
 
 # --- РЕПОЗИТОРИЙ ДЛЯ ЛИЦЕНЗИЙ (ПУБЛИЧНЫЙ) ---
 LIC_GITHUB_OWNER = "0xtract"
