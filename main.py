@@ -13,6 +13,7 @@ import os
 import tempfile
 import zipfile
 import shutil
+import time
 from datetime import datetime
 
 import requests
@@ -28,7 +29,7 @@ from serverclone import Clone
 APP_NAME = "Katana Cloner"
 
 # --- ВЕРСИЯ (ДОЛЖНА СОВПАДАТЬ С РЕЛИЗОМ) ---
-VERSION = "1.4.8"
+VERSION = "1.4.9"
 
 # --- ИМЯ .EXE ФАЙЛА (ДЛЯ ОБНОВЛЕНИЯ) ---
 EXE_NAME = "KatanaCloner.exe"
@@ -139,10 +140,7 @@ def get_license_file():
 
 
 def save_license_file(licenses, sha, commit_message):
-    """Сохраняет licenses.json (через GitHub API с токеном)"""
-    # Для записи нужен токен, но этот функционал можно оставить с токеном
-    # Если репозиторий публичный, запись всё равно требует токен
-    return False, "Сохранение лицензий через API временно отключено. Используйте ручное обновление."
+    return False, "Сохранение лицензий через API временно отключено."
 
 
 # ============================================================
@@ -202,7 +200,6 @@ def check_license(key):
         if saved_hwid != current_hwid:
             return False, "Лицензия привязана к другому устройству.", None
     else:
-        # Для публичного репозитория запись недоступна
         return False, "HWID не зарегистрирован. Обратитесь к администратору для активации.", None
 
     license_type = str(license_data.get("type", "FREE")).upper()
@@ -233,7 +230,6 @@ def check_license(key):
 # ============================================================
 
 def get_latest_release():
-    """Получает информацию о последнем релизе из публичного репозитория"""
     url = f"https://api.github.com/repos/{UPDATE_GITHUB_OWNER}/{UPDATE_GITHUB_REPO}/releases/latest"
     
     try:
@@ -372,8 +368,14 @@ def download_and_install_update(update_info, logger=None):
             with open(bat_path, 'w', encoding='utf-8') as f:
                 f.write(f"""@echo off
 chcp 65001 >nul
-timeout /t 2 /nobreak >nul
 echo Обновление Katana Cloner...
+
+:wait
+timeout /t 1 /nobreak >nul
+tasklist | find "{os.path.basename(current_exe)}" >nul
+if not errorlevel 1 goto wait
+
+echo Копирование нового файла...
 copy /Y "{temp_exe}" "{current_exe}"
 if errorlevel 1 (
     echo Ошибка копирования! Запустите от имени администратора.
@@ -381,6 +383,7 @@ if errorlevel 1 (
     pause >nul
     exit
 )
+
 echo Обновление успешно установлено!
 echo Запуск Katana Cloner...
 start "" "{current_exe}"
@@ -390,14 +393,17 @@ del "%~f0"
             if logger:
                 logger("[UPDATER] Запуск обновления...")
             
-            # Запускаем bat-файл
+            # ЗАПУСКАЕМ BAT-ФАЙЛ
             subprocess.Popen(
                 bat_path,
                 shell=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
             
-            # Закрываем текущее приложение
+            # ДАЁМ ВРЕМЯ НА ЗАПУСК
+            time.sleep(2)
+            
+            # Закрываем приложение
             sys.exit(0)
             
         else:
