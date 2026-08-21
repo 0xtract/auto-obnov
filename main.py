@@ -28,7 +28,7 @@ from serverclone import Clone
 APP_NAME = "Katana Cloner"
 
 # --- ВЕРСИЯ (ДОЛЖНА СОВПАДАТЬ С РЕЛИЗОМ) ---
-VERSION = "1.4.6"
+VERSION = "1.4.7"
 
 # --- ИМЯ .EXE ФАЙЛА (ДЛЯ ОБНОВЛЕНИЯ) ---
 EXE_NAME = "KatanaCloner.exe"
@@ -40,10 +40,9 @@ LIC_GITHUB_FILE = "licenses.json"
 LIC_GITHUB_BRANCH = "main"
 LIC_GITHUB_TOKEN = "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"
 
-# --- РЕПОЗИТОРИЙ ДЛЯ ОБНОВЛЕНИЙ (ПРИВАТНЫЙ) ---
+# --- РЕПОЗИТОРИЙ ДЛЯ ОБНОВЛЕНИЙ (ОТКРЫТЫЙ) ---
 UPDATE_GITHUB_OWNER = "0xtract"
 UPDATE_GITHUB_REPO = "auto-obnov"
-UPDATE_GITHUB_TOKEN = "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"
 
 
 # ============================================================
@@ -308,34 +307,19 @@ def check_license(key):
 
 
 # ============================================================
-# GITHUB ДЛЯ ОБНОВЛЕНИЙ (ПРИВАТНЫЙ РЕПОЗИТОРИЙ)
+# GITHUB ДЛЯ ОБНОВЛЕНИЙ (ОТКРЫТЫЙ РЕПОЗИТОРИЙ)
 # ============================================================
 
-def update_github_headers():
-    return {
-        "Authorization": f"token {UPDATE_GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "Katana-Cloner"
-    }
-
-
 def get_latest_release():
+    """Получает информацию о последнем релизе из открытого репозитория"""
     url = f"https://api.github.com/repos/{UPDATE_GITHUB_OWNER}/{UPDATE_GITHUB_REPO}/releases/latest"
     
     try:
-        response = requests.get(
-            url,
-            headers=update_github_headers(),
-            timeout=15
-        )
+        response = requests.get(url, timeout=15)
     except requests.RequestException as e:
         return None, f"Ошибка подключения к GitHub: {e}"
     
     if response.status_code != 200:
-        if response.status_code == 401:
-            return None, "GitHub Token недействителен (401)."
-        if response.status_code == 403:
-            return None, "Недостаточно прав (403). Проверь scope 'repo'."
         if response.status_code == 404:
             return None, "Релизов пока нет (404). Создай релиз."
         return None, f"GitHub API вернул HTTP {response.status_code}"
@@ -404,7 +388,7 @@ def compare_versions(v1, v2):
 
 
 # ============================================================
-# ЗАГРУЗКА И УСТАНОВКА ОБНОВЛЕНИЯ (ПОДДЕРЖКА .EXE)
+# ЗАГРУЗКА И УСТАНОВКА ОБНОВЛЕНИЯ
 # ============================================================
 
 def download_and_install_update(update_info, logger=None):
@@ -436,14 +420,8 @@ def download_and_install_update(update_info, logger=None):
             if logger:
                 logger(f"[UPDATER] Найден .exe: {exe_url}")
             
-            # === ВАЖНО: СКАЧИВАЕМ С ТОКЕНОМ (ДЛЯ ПРИВАТНОГО РЕПОЗИТОРИЯ) ===
-            download_headers = {
-                "Authorization": f"token {UPDATE_GITHUB_TOKEN}",
-                "Accept": "application/octet-stream",
-                "User-Agent": "Katana-Cloner"
-            }
-            
-            response = requests.get(exe_url, headers=download_headers, stream=True, timeout=60)
+            # СКАЧИВАЕМ БЕЗ ТОКЕНА (ОТКРЫТЫЙ РЕПОЗИТОРИЙ)
+            response = requests.get(exe_url, stream=True, timeout=60)
             
             if response.status_code != 200:
                 if logger:
@@ -507,7 +485,6 @@ del "%~f0"
             
             response = requests.get(
                 update_info["url"],
-                headers=update_github_headers(),
                 stream=True,
                 timeout=60
             )
