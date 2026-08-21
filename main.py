@@ -8,6 +8,11 @@ import hashlib
 import platform
 import uuid
 import subprocess
+import sys
+import os
+import tempfile
+import zipfile
+import shutil
 from datetime import datetime
 
 import requests
@@ -22,17 +27,20 @@ from serverclone import Clone
 
 APP_NAME = "Katana Cloner"
 
-# --- ВЕРСИЯ ---
-VERSION = "1.4.3"
+# --- ВЕРСИЯ (ДОЛЖНА СОВПАДАТЬ С РЕЛИЗОМ) ---
+VERSION = "1.4.6"
 
-# --- РЕПОЗИТОРИЙ ДЛЯ ЛИЦЕНЗИЙ (ПУБЛИЧНЫЙ) ---
+# --- ИМЯ .EXE ФАЙЛА (ДЛЯ ОБНОВЛЕНИЯ) ---
+EXE_NAME = "KatanaCloner.exe"
+
+# --- РЕПОЗИТОРИЙ ДЛЯ ЛИЦЕНЗИЙ ---
 LIC_GITHUB_OWNER = "0xtract"
 LIC_GITHUB_REPO = "katana-lic"
 LIC_GITHUB_FILE = "licenses.json"
 LIC_GITHUB_BRANCH = "main"
 LIC_GITHUB_TOKEN = "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"
 
-# --- РЕПОЗИТОРИЙ ДЛЯ ОБНОВЛЕНИЙ (ПРИВАТНЫЙ, КЛАССИЧЕСКИЙ TOKEN) ---
+# --- РЕПОЗИТОРИЙ ДЛЯ ОБНОВЛЕНИЙ (ПРИВАТНЫЙ) ---
 UPDATE_GITHUB_OWNER = "0xtract"
 UPDATE_GITHUB_REPO = "auto-obnov"
 UPDATE_GITHUB_TOKEN = "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"
@@ -102,7 +110,7 @@ def get_hwid():
 
 
 # ============================================================
-# GITHUB ДЛЯ ЛИЦЕНЗИЙ (публичный репозиторий, Bearer)
+# GITHUB ДЛЯ ЛИЦЕНЗИЙ
 # ============================================================
 
 def lic_github_headers():
@@ -300,7 +308,7 @@ def check_license(key):
 
 
 # ============================================================
-# GITHUB ДЛЯ ОБНОВЛЕНИЙ (приватный репозиторий, классический токен)
+# GITHUB ДЛЯ ОБНОВЛЕНИЙ (ПРИВАТНЫЙ РЕПОЗИТОРИЙ)
 # ============================================================
 
 def update_github_headers():
@@ -395,78 +403,156 @@ def compare_versions(v1, v2):
     return 0
 
 
+# ============================================================
+# ЗАГРУЗКА И УСТАНОВКА ОБНОВЛЕНИЯ (ПОДДЕРЖКА .EXE)
+# ============================================================
+
 def download_and_install_update(update_info, logger=None):
     try:
         if logger:
             logger("[UPDATER] Загрузка обновления...")
         
-        response = requests.get(
-            update_info["url"],
-            headers=update_github_headers(),
-            stream=True,
-            timeout=60
-        )
+        # Проверяем, запущено ли как .exe
+        is_exe = getattr(sys, 'frozen', False)
         
-        import tempfile
-        import os
-        import zipfile
-        import shutil
-        
-        temp_dir = tempfile.mkdtemp()
-        zip_path = os.path.join(temp_dir, "update.zip")
-        
-        with open(zip_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-        
-        if logger:
-            logger("[UPDATER] Распаковка...")
-        
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(temp_dir)
-        
-        main_file = None
-        for root, dirs, files in os.walk(temp_dir):
-            if "main.py" in files:
-                main_file = os.path.join(root, "main.py")
-                break
-        
-        if not main_file:
+        if is_exe:
+            # === ОБНОВЛЕНИЕ ДЛЯ .EXE ===
             if logger:
-                logger("[UPDATER] Файл main.py не найден!")
-            return False, "Файл main.py не найден в архиве"
-        
-        import sys
-        current_dir = os.path.dirname(sys.argv[0])
-        target_file = os.path.join(current_dir, "main.py")
-        
-        backup_file = os.path.join(current_dir, "main_backup.py")
-        if os.path.exists(target_file):
-            shutil.copy2(target_file, backup_file)
-        
-        shutil.copy2(main_file, target_file)
-        
-        def delete_backup():
-            try:
-                if os.path.exists(backup_file):
-                    os.remove(backup_file)
-            except:
-                pass
-        
-        if logger:
-            logger("[UPDATER] Обновление установлено!")
-        
-        threading.Thread(target=delete_backup, daemon=True).start()
-        
-        return True, None
+                logger("[UPDATER] Обновление для .exe")
+            
+            # Ищем .exe файл в релизе
+            exe_url = None
+            for asset in update_info.get("assets", []):
+                asset_name = asset.get("name", "")
+                if asset_name.endswith(".exe"):
+                    exe_url = asset.get("browser_download_url")
+                    break
+            
+            if not exe_url:
+                if logger:
+                    logger("[UPDATER] .exe файл не найден в релизе!")
+                return False, ".exe файл не найден в релизе"
+            
+            if logger:
+                logger(f"[UPDATER] Найден .exe: {exe_url}")
+            
+            # === ВАЖНО: СКАЧИВАЕМ С ТОКЕНОМ (ДЛЯ ПРИВАТНОГО РЕПОЗИТОРИЯ) ===
+            download_headers = {
+                "Authorization": f"token {UPDATE_GITHUB_TOKEN}",
+                "Accept": "application/octet-stream",
+                "User-Agent": "Katana-Cloner"
+            }
+            
+            response = requests.get(exe_url, headers=download_headers, stream=True, timeout=60)
+            
+            if response.status_code != 200:
+                if logger:
+                    logger(f"[UPDATER] Ошибка скачивания: HTTP {response.status_code}")
+                return False, f"Ошибка скачивания: HTTP {response.status_code}"
+            
+            # Получаем путь к текущему .exe
+            current_exe = sys.executable
+            current_dir = os.path.dirname(current_exe)
+            temp_exe = os.path.join(current_dir, f"update_temp_{int(datetime.now().timestamp())}.exe")
+            
+            if logger:
+                logger(f"[UPDATER] Сохранение в: {temp_exe}")
+            
+            # Сохраняем новый .exe
+            with open(temp_exe, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            if logger:
+                logger("[UPDATER] Новый .exe скачан")
+            
+            # Создаём bat-файл для замены .exe
+            bat_path = os.path.join(current_dir, "update.bat")
+            with open(bat_path, 'w', encoding='utf-8') as f:
+                f.write(f"""@echo off
+chcp 65001 >nul
+timeout /t 2 /nobreak >nul
+echo Обновление Katana Cloner...
+copy /Y "{temp_exe}" "{current_exe}"
+if errorlevel 1 (
+    echo Ошибка копирования! Запустите от имени администратора.
+    echo Нажмите любую клавишу для выхода...
+    pause >nul
+    exit
+)
+echo Обновление успешно установлено!
+echo Запуск Katana Cloner...
+start "" "{current_exe}"
+del "%~f0"
+""")
+            
+            if logger:
+                logger("[UPDATER] Запуск обновления...")
+            
+            # Запускаем bat-файл
+            subprocess.Popen(
+                bat_path,
+                shell=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            )
+            
+            # Закрываем текущее приложение
+            sys.exit(0)
+            
+        else:
+            # === ОБНОВЛЕНИЕ ДЛЯ .PY ===
+            if logger:
+                logger("[UPDATER] Обновление для .py")
+            
+            response = requests.get(
+                update_info["url"],
+                headers=update_github_headers(),
+                stream=True,
+                timeout=60
+            )
+            
+            temp_dir = tempfile.mkdtemp()
+            zip_path = os.path.join(temp_dir, "update.zip")
+            
+            with open(zip_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            if logger:
+                logger("[UPDATER] Распаковка...")
+            
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
+            
+            main_file = None
+            for root, dirs, files in os.walk(temp_dir):
+                if "main.py" in files:
+                    main_file = os.path.join(root, "main.py")
+                    break
+            
+            if not main_file:
+                if logger:
+                    logger("[UPDATER] Файл main.py не найден!")
+                return False, "Файл main.py не найден в архиве"
+            
+            current_dir = os.path.dirname(sys.argv[0])
+            target_file = os.path.join(current_dir, "main.py")
+            
+            shutil.copy2(main_file, target_file)
+            
+            if logger:
+                logger("[UPDATER] Обновление установлено!")
+            
+            return True, None
         
     except Exception as e:
         return False, f"Ошибка обновления: {e}"
 
 
 # ============================================================
-# КЛАСС ДЛЯ УПРАВЛЕНИЯ ОБНОВЛЕНИЯМИ (ПОТОКИ)
+# КЛАСС ДЛЯ УПРАВЛЕНИЯ ОБНОВЛЕНИЯМИ
 # ============================================================
 
 class UpdateWorker:
@@ -535,16 +621,20 @@ class UpdateWorker:
     
     def restart_app(self):
         self.log("[UPDATER] Перезапуск...")
-        import sys
-        import subprocess
-        import os
+        
+        is_exe = getattr(sys, 'frozen', False)
+        
+        if is_exe:
+            subprocess.Popen([sys.executable])
+        else:
+            subprocess.Popen([sys.executable, sys.argv[0]])
+        
         self.root.destroy()
-        subprocess.Popen([sys.executable, sys.argv[0]])
         sys.exit(0)
 
 
 # ============================================================
-# UPDATE WINDOW (МОДАЛЬНЫЙ - БЛОКИРУЕТ УПРАВЛЕНИЕ)
+# UPDATE WINDOW
 # ============================================================
 
 class UpdateWindow:
@@ -998,7 +1088,6 @@ class MainWindow:
 
         # --- КНОПКА ОБНОВЛЕНИЯ (СКРЫТА ПО УМОЛЧАНИЮ) ---
         self.update_frame = tk.Frame(header, bg=BG)
-        # НЕ показываем, пока нет обновления
         
         self.update_button = tk.Button(
             self.update_frame,
@@ -1064,24 +1153,18 @@ class MainWindow:
 
     def on_update_result(self, status, info):
         if status == "available":
-            # ПОКАЗЫВАЕМ КНОПКУ ОБНОВЛЕНИЯ
             self.update_frame.pack(side="right", padx=(0, 5))
             self.update_button.config(text=f"⬇ ОБНОВИТЬ v{info['version']}")
             self.update_info = info
-            
-            # АВТОМАТИЧЕСКИ ОТКРЫВАЕМ ОКНО ОБНОВЛЕНИЯ
             self.root.after(500, self.start_update)
             
         elif status == "up_to_date":
-            # СКРЫВАЕМ КНОПКУ (НЕТ ОБНОВЛЕНИЙ)
             self.update_frame.pack_forget()
             
-        else:  # error
-            # СКРЫВАЕМ КНОПКУ ПРИ ОШИБКЕ
+        else:
             self.update_frame.pack_forget()
 
     def start_update(self):
-        """Запускает принудительное обновление с двумя кнопками"""
         if not self.update_info:
             return
         
