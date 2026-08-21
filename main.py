@@ -28,19 +28,18 @@ from serverclone import Clone
 APP_NAME = "Katana Cloner"
 
 # --- ВЕРСИЯ (ДОЛЖНА СОВПАДАТЬ С РЕЛИЗОМ) ---
-VERSION = "1.4.7"
+VERSION = "1.4.8"
 
 # --- ИМЯ .EXE ФАЙЛА (ДЛЯ ОБНОВЛЕНИЯ) ---
 EXE_NAME = "KatanaCloner.exe"
 
-# --- РЕПОЗИТОРИЙ ДЛЯ ЛИЦЕНЗИЙ ---
+# --- РЕПОЗИТОРИЙ ДЛЯ ЛИЦЕНЗИЙ (ПУБЛИЧНЫЙ) ---
 LIC_GITHUB_OWNER = "0xtract"
 LIC_GITHUB_REPO = "katana-lic"
 LIC_GITHUB_FILE = "licenses.json"
 LIC_GITHUB_BRANCH = "main"
-LIC_GITHUB_TOKEN = "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"
 
-# --- РЕПОЗИТОРИЙ ДЛЯ ОБНОВЛЕНИЙ (ОТКРЫТЫЙ) ---
+# --- РЕПОЗИТОРИЙ ДЛЯ ОБНОВЛЕНИЙ (ПУБЛИЧНЫЙ) ---
 UPDATE_GITHUB_OWNER = "0xtract"
 UPDATE_GITHUB_REPO = "auto-obnov"
 
@@ -109,94 +108,41 @@ def get_hwid():
 
 
 # ============================================================
-# GITHUB ДЛЯ ЛИЦЕНЗИЙ
+# GITHUB ДЛЯ ЛИЦЕНЗИЙ (ПУБЛИЧНЫЙ РЕПОЗИТОРИЙ)
 # ============================================================
 
-def lic_github_headers():
-    return {
-        "Authorization": f"Bearer {LIC_GITHUB_TOKEN}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "Katana-Cloner"
-    }
-
-
 def get_license_file():
-    url = (
-        f"https://api.github.com/repos/"
-        f"{LIC_GITHUB_OWNER}/"
-        f"{LIC_GITHUB_REPO}/contents/"
-        f"{LIC_GITHUB_FILE}"
-        f"?ref={LIC_GITHUB_BRANCH}"
-    )
-
+    """Получает licenses.json из публичного репозитория через raw ссылку"""
+    url = f"https://raw.githubusercontent.com/{LIC_GITHUB_OWNER}/{LIC_GITHUB_REPO}/{LIC_GITHUB_BRANCH}/{LIC_GITHUB_FILE}"
+    
     try:
-        response = requests.get(
-            url,
-            headers=lic_github_headers(),
-            timeout=15
-        )
+        response = requests.get(url, timeout=15)
     except requests.RequestException as e:
         return None, f"Ошибка подключения к GitHub: {e}"
-
+    
     if response.status_code != 200:
-        if response.status_code == 401:
-            return None, "GitHub Token недействителен."
-        if response.status_code == 403:
-            return None, "GitHub Token не имеет необходимых прав."
         if response.status_code == 404:
-            return None, "Репозиторий или licenses.json не найден."
-        return None, f"GitHub API вернул HTTP {response.status_code}"
-
+            return None, "Файл licenses.json не найден. Проверьте репозиторий."
+        return None, f"GitHub вернул HTTP {response.status_code}"
+    
     try:
-        data = response.json()
-        content = data["content"]
-        sha = data["sha"]
-        content = content.replace("\n", "")
-        decoded = base64.b64decode(content).decode("utf-8")
-        licenses = json.loads(decoded)
-
+        licenses = json.loads(response.text)
+        
         if not isinstance(licenses, dict):
             return None, "licenses.json должен содержать JSON-объект."
-
-        return (licenses, sha), None
-
-    except Exception as e:
+        
+        return (licenses, None), None
+    except json.JSONDecodeError as e:
         return None, f"Ошибка чтения licenses.json: {e}"
+    except Exception as e:
+        return None, f"Ошибка: {e}"
 
 
 def save_license_file(licenses, sha, commit_message):
-    content = json.dumps(licenses, indent=4, ensure_ascii=False)
-    encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
-
-    url = (
-        f"https://api.github.com/repos/"
-        f"{LIC_GITHUB_OWNER}/"
-        f"{LIC_GITHUB_REPO}/contents/"
-        f"{LIC_GITHUB_FILE}"
-    )
-
-    payload = {
-        "message": commit_message,
-        "content": encoded,
-        "sha": sha,
-        "branch": LIC_GITHUB_BRANCH
-    }
-
-    try:
-        response = requests.put(
-            url,
-            headers=lic_github_headers(),
-            json=payload,
-            timeout=15
-        )
-    except requests.RequestException as e:
-        return False, str(e)
-
-    if response.status_code not in (200, 201):
-        return False, f"GitHub HTTP {response.status_code}"
-
-    return True, None
+    """Сохраняет licenses.json (через GitHub API с токеном)"""
+    # Для записи нужен токен, но этот функционал можно оставить с токеном
+    # Если репозиторий публичный, запись всё равно требует токен
+    return False, "Сохранение лицензий через API временно отключено. Используйте ручное обновление."
 
 
 # ============================================================
@@ -256,22 +202,8 @@ def check_license(key):
         if saved_hwid != current_hwid:
             return False, "Лицензия привязана к другому устройству.", None
     else:
-        license_data["hwid"] = current_hwid
-        license_data["last_used"] = datetime.now().strftime("%Y-%m-%d")
-
-        success, error = save_license_file(
-            licenses,
-            sha,
-            f"Register HWID for {key}"
-        )
-
-        if not success:
-            return False, f"Не удалось зарегистрировать HWID: {error}", None
-
-        result, error = get_license_file()
-        if result is not None:
-            licenses, sha = result
-            license_data = licenses[key]
+        # Для публичного репозитория запись недоступна
+        return False, "HWID не зарегистрирован. Обратитесь к администратору для активации.", None
 
     license_type = str(license_data.get("type", "FREE")).upper()
 
@@ -286,32 +218,22 @@ def check_license(key):
         if uses_left <= 0:
             return False, "Лимит использований исчерпан.", None
 
-    if uses_left is not None:
-        license_data["uses_left"] = uses_left - 1
-
-    license_data["last_used"] = datetime.now().strftime("%Y-%m-%d")
-
-    save_license_file(
-        licenses,
-        sha,
-        f"Use license {key}"
-    )
-
     return True, "Лицензия успешно активирована.", {
         "key": key,
         "type": license_type,
         "expires": license_data.get("expires"),
-        "uses_left": uses_left - 1 if uses_left is not None else None,
-        "hwid": current_hwid
+        "uses_left": uses_left if uses_left is not None else None,
+        "hwid": current_hwid,
+        "note": "Публичный режим - лицензия только для чтения"
     }
 
 
 # ============================================================
-# GITHUB ДЛЯ ОБНОВЛЕНИЙ (ОТКРЫТЫЙ РЕПОЗИТОРИЙ)
+# GITHUB ДЛЯ ОБНОВЛЕНИЙ (ПУБЛИЧНЫЙ РЕПОЗИТОРИЙ)
 # ============================================================
 
 def get_latest_release():
-    """Получает информацию о последнем релизе из открытого репозитория"""
+    """Получает информацию о последнем релизе из публичного репозитория"""
     url = f"https://api.github.com/repos/{UPDATE_GITHUB_OWNER}/{UPDATE_GITHUB_REPO}/releases/latest"
     
     try:
@@ -321,7 +243,7 @@ def get_latest_release():
     
     if response.status_code != 200:
         if response.status_code == 404:
-            return None, "Релизов пока нет (404). Создай релиз."
+            return None, "Релизов пока нет (404). Создайте релиз."
         return None, f"GitHub API вернул HTTP {response.status_code}"
     
     try:
